@@ -141,6 +141,7 @@ static void kgsl_check_idle(struct kgsl_device *device)
 	mutex_unlock(&device->mutex);
 }
 
+#ifdef CONFIG_MSM_KGSL_MMU
 static void kgsl_clean_cache_all(struct kgsl_process_private *private)
 {
 	struct kgsl_mem_entry *entry = NULL;
@@ -156,6 +157,7 @@ static void kgsl_clean_cache_all(struct kgsl_process_private *private)
 	}
 	spin_unlock(&private->mem_lock);
 }
+#endif
 
 /*this is used for logging, so that we can call the dev_printk
  functions without export struct kgsl_driver everywhere*/
@@ -1310,12 +1312,6 @@ static int kgsl_ioctl_map_user_mem(struct kgsl_process_private *private,
 
 		if (!param.len)
 			param.len = len;
-		else if (param.len != len) {
-			KGSL_DRV_ERR("param.len(%d) invalid for given host "
-				"address(%x)\n", param.len, param.hostptr);
-			result = -EINVAL;
-			goto error;
-		}
 		if (param.memtype == KGSL_USER_MEM_TYPE_ASHMEM) {
 			struct file *ashmem_vm_file;
 			if (get_ashmem_file(param.fd, &file_ptr,

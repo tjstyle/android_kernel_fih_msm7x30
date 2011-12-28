@@ -125,9 +125,13 @@ struct diag_context {
 	struct usb_diag_ch ch;
 };
 
+static struct diag_context *g_diag_context;
+
 static inline struct diag_context *func_to_dev(struct usb_function *f)
 {
-	return container_of(f, struct diag_context, function);
+	g_diag_context = container_of(f, struct diag_context, function);
+
+	return g_diag_context;
 }
 
 static void usb_config_work_func(struct work_struct *work)
@@ -213,6 +217,16 @@ static void diag_read_complete(struct usb_ep *ep,
 	if (ctxt->ch.notify)
 		ctxt->ch.notify(ctxt->ch.priv, USB_DIAG_READ_DONE, d_req);
 }
+
+//SW2-5-1-MP-DbgCfgTool-00*[
+#ifdef CONFIG_FIH_EFS2SD
+int diag_usb_configure(void)
+{
+    return g_diag_context->configured;
+}
+EXPORT_SYMBOL(diag_usb_configure);
+#endif
+//SW2-5-1-MP-DbgCfgTool-00*]
 
 /**
  * usb_diag_open() - Open a diag channel over USB

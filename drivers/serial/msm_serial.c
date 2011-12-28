@@ -38,6 +38,15 @@
 #include <mach/msm_serial_pdata.h>
 #include "msm_serial.h"
 
+ //SW2-5-1-MP-DbgCfgTool-00+[
+#ifdef CONFIG_FIH_REMOVE_SERIAL_DYNAMICALLY
+#include <mach/msm_smd.h>  
+extern struct platform_device msm_device_uart2;
+#include <mach/gpio.h> //SW2-5-2-MP-DbgCfgTool-06+
+#endif
+
+extern int console_suspend_enabled; //SW2-5-2-MP-DbgCfgTool-08+
+ //SW2-5-1-MP-DbgCfgTool-00+]
 
 #ifdef CONFIG_SERIAL_MSM_CLOCK_CONTROL
 enum msm_clk_states_e {
@@ -1151,6 +1160,32 @@ static struct platform_driver msm_platform_driver = {
 static int __init msm_serial_init(void)
 {
 	int ret;
+
+//SW2-5-1-MP-DbgCfgTool-00+[
+#ifdef CONFIG_FIH_REMOVE_SERIAL_DYNAMICALLY
+    struct clk *uart2_clk;
+    if(!fih_read_uart_switch_from_smem()) {
+	printk(KERN_INFO "msm_serial: Disable UART clock\n");
+	gpio_tlmm_config(GPIO_CFG(51, 0, GPIO_CFG_INPUT, GPIO_CFG_NO_PULL, GPIO_CFG_2MA), GPIO_CFG_DISABLE);
+	gpio_tlmm_config(GPIO_CFG(52, 0, GPIO_CFG_INPUT, GPIO_CFG_NO_PULL, GPIO_CFG_2MA), GPIO_CFG_DISABLE);
+	uart2_clk = clk_get(&msm_device_uart2.dev, "uart_clk");        
+	if(!IS_ERR(uart2_clk)){            
+		clk_enable(uart2_clk);   //If clk_enable is not called, calling clk_disable will enter ram dump.            
+		clk_disable(uart2_clk);        
+	}
+	#ifndef CONFIG_FIH_MODEM_REMOVE_UART2_CLK
+	  /* Disable console suspend to guarantee there's no buffer copy delay after resume */
+	  console_suspend_enabled = 0; //SW2-5-2-MP-DbgCfgTool-08+
+	#endif /* CONFIG_FIH_MODEM_REMOVE_UART2_CLK */
+	return 0; 
+    }
+    #ifndef CONFIG_FIH_MODEM_REMOVE_UART2_CLK
+    /* Enable suspend console when UART clock is enable, it will buffer the kernel log, and emit it after resume
+     * This can make sure DUT can enter suspend mode without interrupt */
+    console_suspend_enabled = 1; //SW2-5-2-MP-DbgCfgTool-08+
+    #endif /* CONFIG_FIH_MODEM_REMOVE_UART2_CLK */
+#endif
+//SW2-5-1-MP-DbgCftTool-00+]    
 
 	ret = uart_register_driver(&msm_uart_driver);
 	if (unlikely(ret))

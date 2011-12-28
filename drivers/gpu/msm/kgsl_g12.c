@@ -111,6 +111,7 @@ static struct kgsl_g12_device device_2d0 = {
 		.mutex = __MUTEX_INITIALIZER(device_2d0.dev.mutex),
 		.state = KGSL_STATE_INIT,
 		.active_cnt = 0,
+		.context_idr = IDR_INIT(context_idr),
 	},
 	.iomemname = "kgsl_2d0_reg_memory",
 	.irqname = "kgsl_2d0_irq",
@@ -136,6 +137,7 @@ static struct kgsl_g12_device device_2d1 = {
 		.mutex = __MUTEX_INITIALIZER(device_2d1.dev.mutex),
 		.state = KGSL_STATE_INIT,
 		.active_cnt = 0,
+		.context_idr = IDR_INIT(context_idr),
 	},
 	.iomemname = "kgsl_2d1_reg_memory",
 	.irqname = "kgsl_2d1_irq",
@@ -342,6 +344,7 @@ kgsl_g12_init_pwrctrl(struct kgsl_device *device)
 		KGSL_PWRFLAGS_AXI_OFF | KGSL_PWRFLAGS_POWER_OFF |
 		KGSL_PWRFLAGS_IRQ_OFF;
 	device->pwrctrl.nap_allowed = pdata->nap_allowed;
+	device->pwrctrl.pwrrail_first = pdata->pwrrail_first;
 	device->pwrctrl.clk_freq[KGSL_AXI_HIGH] = pdata->high_axi_2d;
 	device->pwrctrl.grp_clk = clk;
 	device->pwrctrl.grp_src_clk = clk;
@@ -536,9 +539,13 @@ static int kgsl_g12_start(struct kgsl_device *device, unsigned int init_ram)
 	device->state = KGSL_STATE_INIT;
 	device->requested_state = KGSL_STATE_NONE;
 
-	kgsl_pwrctrl_pwrrail(device, KGSL_PWRFLAGS_POWER_ON);
+	/* Order pwrrail/clk sequence based upon platform. */
+	if (device->pwrctrl.pwrrail_first)
+		kgsl_pwrctrl_pwrrail(device, KGSL_PWRFLAGS_POWER_ON);
 	kgsl_pwrctrl_clk(device, KGSL_PWRFLAGS_CLK_ON);
 	kgsl_pwrctrl_axi(device, KGSL_PWRFLAGS_AXI_ON);
+	if (!device->pwrctrl.pwrrail_first)
+		kgsl_pwrctrl_pwrrail(device, KGSL_PWRFLAGS_POWER_ON);
 
 	/* Set up MH arbiter.  MH offsets are considered to be dword
 	 * based, therefore no down shift. */
@@ -579,10 +586,12 @@ static int kgsl_g12_stop(struct kgsl_device *device)
 	kgsl_mmu_stop(device);
 
 	kgsl_pwrctrl_irq(device, KGSL_PWRFLAGS_IRQ_OFF);
+	if (!device->pwrctrl.pwrrail_first)
+		kgsl_pwrctrl_pwrrail(device, KGSL_PWRFLAGS_POWER_OFF);
 	kgsl_pwrctrl_axi(device, KGSL_PWRFLAGS_AXI_OFF);
 	kgsl_pwrctrl_clk(device, KGSL_PWRFLAGS_CLK_OFF);
-	kgsl_pwrctrl_pwrrail(device, KGSL_PWRFLAGS_POWER_OFF);
-
+	if (device->pwrctrl.pwrrail_first)
+		kgsl_pwrctrl_pwrrail(device, KGSL_PWRFLAGS_POWER_OFF);
 	return 0;
 }
 

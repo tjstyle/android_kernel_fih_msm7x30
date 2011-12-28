@@ -179,6 +179,9 @@ struct hci_conn {
 	__u8             sec_level;
 	__u8             power_save;
 	__u16            disc_timeout;
+	//Div2-SW6-BT_SNIFF++{
+	__u8             force_active_mode;	
+	//Div2-SW6-BT_SNIFF++}
 	unsigned long	 pend;
 
 	unsigned int	 sent;

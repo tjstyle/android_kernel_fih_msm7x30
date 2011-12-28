@@ -377,6 +377,7 @@ struct input_absinfo {
 
 #define KEY_WIMAX		246
 #define KEY_RFKILL		247	/* Key that controls all radios */
+#define KEY_COVERDET	        188     //SW2-D5-AriesHuang-Cover Detect Key function implement+
 
 /* Code 255 is reserved for special needs of AT keyboard driver */
 

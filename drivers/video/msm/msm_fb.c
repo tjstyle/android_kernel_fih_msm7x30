@@ -1032,12 +1032,31 @@ static int msm_fb_register(struct msm_fb_data_type *mfd)
 
 	var->pixclock = mfd->panel_info.clk_rate;
 	mfd->var_pixclock = var->pixclock;
-
+	/*Div2-SW6-SC-Add_panel_size-00+{*/
+	if(panel_info->width>0 && panel_info->height>0)
+	{
+		var->width = panel_info->width;
+		var->height = panel_info->height;
+	}
+	/*Div2-SW6-SC-Add_panel_size-00+}*/
 	var->xres = panel_info->xres;
 	var->yres = panel_info->yres;
 	var->xres_virtual = panel_info->xres;
 	var->yres_virtual = panel_info->yres * mfd->fb_page;
 	var->bits_per_pixel = bpp * 8;	/* FrameBuffer color depth */
+	if (mfd->dest == DISPLAY_LCD) {
+		var->reserved[4] = panel_info->lcd.refx100 / 100;
+	} else {
+		var->reserved[4] = panel_info->clk_rate /
+			((panel_info->lcdc.h_back_porch +
+			  panel_info->lcdc.h_front_porch +
+			  panel_info->lcdc.h_pulse_width +
+			  panel_info->xres) *
+			 (panel_info->lcdc.v_back_porch +
+			  panel_info->lcdc.v_front_porch +
+			  panel_info->lcdc.v_pulse_width +
+			  panel_info->yres));
+	}
 		/*
 		 * id field for fb app
 		 */

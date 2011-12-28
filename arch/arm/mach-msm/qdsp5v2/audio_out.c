@@ -39,6 +39,11 @@
 
 #include <mach/htc_pwrsink.h>
 #include <mach/debug_mm.h>
+/* FIHTDC, Div2-SW2-BSP, Peter, Audio { */
+#ifdef CONFIG_FIH_SFX_AUDIO
+#include<linux/fih_hw_info.h>
+#endif
+/* } FIHTDC, Div2-SW2-BSP, Peter, Audio */
 
 #define BUFSZ (960 * 5)
 #define DMASZ (BUFSZ * 2)
@@ -346,6 +351,11 @@ static long audio_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 	struct audio *audio = file->private_data;
 	int rc = -EINVAL;
 	unsigned long flags = 0;
+/* FIHTDC, Div2-SW2-BSP, Peter, Audio { */
+#ifdef CONFIG_FIH_SFX_AUDIO
+	int pid =0;
+#endif
+/* } FIHTDC, Div2-SW2-BSP, Peter, Audio */
 
 	if (cmd == AUDIO_GET_STATS) {
 		struct msm_audio_stats stats;
@@ -448,6 +458,21 @@ static long audio_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 		rc = 0;
 		break;
 	}
+/* FIHTDC, Div2-SW2-BSP, Peter, Audio { */
+#ifdef CONFIG_FIH_SFX_AUDIO
+	case GET_DUAL_MIC_SETTING:
+    		pid = fih_get_product_id();
+		printk("GET_DUAL_MIC_SETTING pid=%d\n",pid);
+		printk("Product_SF5 pid=%d\n",Product_SF5);
+		printk("Product_SF6 pid=%d\n",Product_SF6);
+		if((pid==Product_SF5)||(pid==Product_SF6)||IS_SF8_SERIES_PRJ())
+			rc = 0;
+		else
+			rc = 1;
+		printk("rc=%d\n",rc);
+		break;
+#endif
+/* } FIHTDC, Div2-SW2-BSP, Peter, Audio */
 	default:
 		rc = -EINVAL;
 	}

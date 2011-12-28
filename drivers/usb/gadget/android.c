@@ -57,8 +57,13 @@ MODULE_VERSION("1.0");
 static const char longname[] = "Gadget Android";
 
 /* Default vendor and product IDs, overridden by platform data */
+#ifdef CONFIG_FIH_FXX
+#define VENDOR_ID		0x0489
+#define PRODUCT_ID		0xC000
+#else	// CONFIG_FIH_FXX
 #define VENDOR_ID		0x18D1
 #define PRODUCT_ID		0x0001
+#endif	// CONFIG_FIH_FXX
 
 struct android_dev {
 	struct usb_composite_dev *cdev;
@@ -68,6 +73,11 @@ struct android_dev {
 	int num_functions;
 	char **functions;
 
+/* FIHTDC, Div2-SW2-BSP, Penho, USB_ACCESORIES { */
+#ifdef CONFIG_USB_ANDROID_ACCESSORY
+	int vendor_id;
+#endif	// CONFIG_USB_ANDROID_ACCESSORY
+/* } FIHTDC, Div2-SW2-BSP, Penho, USB_ACCESORIES */
 	int product_id;
 	int version;
 };
@@ -232,11 +242,37 @@ static int product_matches_functions(struct android_usb_product *p)
 {
 	struct usb_function		*f;
 	list_for_each_entry(f, &android_config_driver.functions, list) {
+/* FIHTDC, Div2-SW2-BSP, Penho, FB0G.B-224 { */
+#ifdef CONFIG_FIH_FXX
+		if (!strcmp(f->name, "adb"))
+			continue;
+#endif	// CONFIG_FIH_FXX
+/* } FIHTDC, Div2-SW2-BSP, Penho, FB0G.B-224 */
 		if (product_has_function(p, f) == !!f->disabled)
 			return 0;
 	}
 	return 1;
 }
+
+/* FIHTDC, Div2-SW2-BSP, Penho, USB_ACCESORIES { */
+#ifdef CONFIG_USB_ANDROID_ACCESSORY
+static int get_vendor_id(struct android_dev *dev)
+{
+	struct android_usb_product *p = dev->products;
+	int count = dev->num_products;
+	int i;
+
+	if (p) {
+		for (i = 0; i < count; i++, p++) {
+			if (p->vendor_id && product_matches_functions(p))
+				return p->vendor_id;
+		}
+	}
+	/* use default vendor ID */
+	return dev->vendor_id;
+}
+#endif	// CONFIG_USB_ANDROID_ACCESSORY
+/* } FIHTDC, Div2-SW2-BSP, Penho, USB_ACCESORIES */
 
 static int get_product_id(struct android_dev *dev)
 {
@@ -317,9 +353,25 @@ static int __devinit android_bind(struct usb_composite_dev *cdev)
 
 	usb_gadget_set_selfpowered(gadget);
 	dev->cdev = cdev;
+/* FIHTDC, Div2-SW2-BSP, Penho, USB_ACCESORIES { */
+#ifdef CONFIG_USB_ANDROID_ACCESSORY
+	product_id = dev->product_id;
+	device_desc.idVendor = __constant_cpu_to_le16(dev->vendor_id);
+	device_desc.idProduct = __constant_cpu_to_le16(product_id);
+	cdev->desc.idVendor = device_desc.idVendor;
+	cdev->desc.idProduct = device_desc.idProduct;
+#else	// CONFIG_USB_ANDROID_ACCESSORY
+/* FIHTDC, Div2-SW2-BSP, Penho, PCtool { */
+#ifdef CONFIG_FIH_FXX
+	product_id = dev->product_id;
+#else	// CONFIG_FIH_FXX
 	product_id = get_product_id(dev);
+#endif	// CONFIG_FIH_FXX
+/* } FIHTDC, Div2-SW2-BSP, Penho, PCtool */
 	device_desc.idProduct = __constant_cpu_to_le16(product_id);
 	cdev->desc.idProduct = device_desc.idProduct;
+#endif	// CONFIG_USB_ANDROID_ACCESSORY
+/* } FIHTDC, Div2-SW2-BSP, Penho, USB_ACCESORIES */
 
 	return 0;
 }
@@ -437,6 +489,45 @@ static void android_config_functions(struct usb_function *f, int enable)
 }
 #endif
 
+/* FIHTDC, Div2-SW2-BSP, Penho, UsbCustomized { */
+void usb_switch_pid(int pid)
+{
+    struct android_dev *dev = _android_dev;
+    struct android_usb_product *up = dev->products;
+    int index;
+    struct usb_function *func;
+
+    for (index = 0; index < dev->num_products; index++, up++) {
+        if (pid == up->product_id)
+            break;
+    }
+
+    list_for_each_entry(func, &android_config_driver.functions, list) {
+        //func->hidden = 1;
+        for (index = 0; index < up->num_functions; index++) {
+            if (!strcmp(up->functions[index], func->name)){
+                //USBDBG("func->name = %s enable", func->name);
+                //func->hidden = 0;
+            }
+        }
+    }
+
+    device_desc.idProduct = __constant_cpu_to_le16(pid);
+    if (dev->cdev)
+        dev->cdev->desc.idProduct = device_desc.idProduct;
+
+    /* force reenumeration */
+    if (dev->cdev && dev->cdev->gadget &&
+            dev->cdev->gadget->speed != USB_SPEED_UNKNOWN) {
+        usb_gadget_disconnect(dev->cdev->gadget);
+        msleep(10);
+        usb_gadget_connect(dev->cdev->gadget);
+    }
+
+}
+EXPORT_SYMBOL(usb_switch_pid);
+/* } FIHTDC, Div2-SW2-BSP, Penho, UsbCustomized */
+
 void android_enable_function(struct usb_function *f, int enable)
 {
 	struct android_dev *dev = _android_dev;
@@ -469,11 +560,37 @@ void android_enable_function(struct usb_function *f, int enable)
 			android_config_functions(f, enable);
 		}
 #endif
+/* FIHTDC, Div2-SW2-BSP, Penho, USB_ACCESORIES { */
+#ifdef CONFIG_USB_ANDROID_ACCESSORY
+		if (!strcmp(f->name, "accessory") && enable) {
+			struct usb_function		*func;
+
+		    /* disable everything else (and keep adb for now) */
+			list_for_each_entry(func, &android_config_driver.functions, list) {
+				if (strcmp(func->name, "accessory")
+					&& strcmp(func->name, "adb")) {
+					usb_function_set_enabled(func, 0);
+				}
+			}
+        }
+#endif	// CONFIG_USB_ANDROID_ACCESSORY
+/* } FIHTDC, Div2-SW2-BSP, Penho, USB_ACCESORIES */
 
 		product_id = get_product_id(dev);
+/* FIHTDC, Div2-SW2-BSP, Penho, USB_ACCESORIES { */
+#ifdef CONFIG_USB_ANDROID_ACCESSORY
+		device_desc.idVendor = __constant_cpu_to_le16(get_vendor_id(dev));
+		device_desc.idProduct = __constant_cpu_to_le16(product_id);
+		if (dev->cdev) {
+			dev->cdev->desc.idVendor = device_desc.idVendor;
+			dev->cdev->desc.idProduct = device_desc.idProduct;
+		}
+#else	// CONFIG_USB_ANDROID_ACCESSORY
 		device_desc.idProduct = __constant_cpu_to_le16(product_id);
 		if (dev->cdev)
 			dev->cdev->desc.idProduct = device_desc.idProduct;
+#endif	// CONFIG_USB_ANDROID_ACCESSORY
+/* } FIHTDC, Div2-SW2-BSP, Penho, USB_ACCESORIES */
 		usb_composite_force_reset(dev->cdev);
 	}
 }
@@ -519,9 +636,17 @@ static int android_debugfs_init(struct android_dev *dev)
 	if (!android_debug_root)
 		return -ENOENT;
 
+/* FIHTDC, Div2-SW2-BSP, Penho, FB0G.B-565 { */
+#ifdef CONFIG_FIH_FXX
+	android_debug_serialno = debugfs_create_file("serial_number", 0220,
+						android_debug_root, dev,
+						&android_fops);
+#else	// CONFIG_FIH_FXX
 	android_debug_serialno = debugfs_create_file("serial_number", 0222,
 						android_debug_root, dev,
 						&android_fops);
+#endif	// CONFIG_FIH_FXX
+/* } FIHTDC, Div2-SW2-BSP, Penho, FB0G.B-565 */
 	if (!android_debug_serialno) {
 		debugfs_remove(android_debug_root);
 		android_debug_root = NULL;
@@ -560,9 +685,19 @@ static int __init android_probe(struct platform_device *pdev)
 		dev->num_products = pdata->num_products;
 		dev->functions = pdata->functions;
 		dev->num_functions = pdata->num_functions;
+/* FIHTDC, Div2-SW2-BSP, Penho, USB_ACCESORIES { */
+#ifdef CONFIG_USB_ANDROID_ACCESSORY
+		if (pdata->vendor_id) {
+			dev->vendor_id = pdata->vendor_id;
+			device_desc.idVendor =
+				__constant_cpu_to_le16(pdata->vendor_id);
+		}
+#else	// CONFIG_USB_ANDROID_ACCESSORY
 		if (pdata->vendor_id)
 			device_desc.idVendor =
 				__constant_cpu_to_le16(pdata->vendor_id);
+#endif	// CONFIG_USB_ANDROID_ACCESSORY
+/* } FIHTDC, Div2-SW2-BSP, Penho, USB_ACCESORIES */
 		if (pdata->product_id) {
 			dev->product_id = pdata->product_id;
 			device_desc.idProduct =

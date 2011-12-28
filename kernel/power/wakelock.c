@@ -44,6 +44,10 @@ static DEFINE_SPINLOCK(list_lock);
 static LIST_HEAD(inactive_locks);
 static struct list_head active_wake_locks[WAKE_LOCK_TYPE_COUNT];
 static int current_event_num;
+static int suspend_sys_sync_count;
+static DEFINE_SPINLOCK(suspend_sys_sync_lock);
+static struct workqueue_struct *suspend_sys_sync_work_queue;
+static DECLARE_COMPLETION(suspend_sys_sync_comp);
 struct workqueue_struct *suspend_work_queue;
 struct wake_lock main_wake_lock;
 suspend_state_t requested_suspend_state = PM_SUSPEND_MEM;
@@ -53,6 +57,283 @@ static struct wake_lock unknown_wakeup;
 static struct wake_lock deleted_wake_locks;
 static ktime_t last_sleep_time_update;
 static int wait_for_wakeup;
+
+//Div2-SW2-BSP-pmlog, HenryMCWang +
+#include "linux/pmlog.h"
+
+#ifdef __FIH_PM_STATISTICS__
+struct pms g_pms_run;
+struct pms g_pms_bkrun;
+struct hpms g_pms_suspend;
+
+int g_secupdatereq;
+
+#ifdef __FIH_DBG_PM_STATISTICS__
+struct hpms g_pms_resume;
+int g_timelose;
+#endif		// __FIH_DBG_PM_STATISTICS__
+
+static int pms_read_proc(char *page, char **start, off_t off,
+			       int count, int *eof, void *data)
+{
+	//unsigned long irqflags;
+	int len = 0;
+	char *p = page;
+
+	//spin_lock_irqsave(&list_lock, irqflags);
+
+	p += sprintf(p, "   name   -    time    -    count\n");
+	p += sprintf(p, "\"run    \" - %10d - %10d\n", (int)g_pms_run.time, (int)g_pms_run.cnt);
+	p += sprintf(p, "\"bkrun  \" - %10d - %10d\n", (int)(g_pms_bkrun.time - g_pms_suspend.time), (int)g_pms_bkrun.cnt);
+#ifdef __FIH_DBG_PM_STATISTICS__
+	p += sprintf(p, "\"suspend\" - %10d - %10d - %d\n", (int)g_pms_suspend.time, (int)g_pms_suspend.cnt, (int)g_timelose);
+	p += sprintf(p, "\"resume \" - %10d\n", (int)g_pms_resume.time);
+#else		// __FIH_DBG_PM_STATISTICS__
+	p += sprintf(p, "\"suspend\" - %10d - %10d\n", (int)g_pms_suspend.time, (int)g_pms_suspend.cnt);
+#endif		// __FIH_DBG_PM_STATISTICS__
+
+	//spin_unlock_irqrestore(&list_lock, irqflags);
+
+	*start = page + off;
+
+	len = p - page;
+	if (len > off)
+		len -= off;
+	else
+		len = 0;
+
+	return len < count ? len  : count;
+}
+#endif	// __FIH_PM_STATISTICS__
+//Div2-SW2-BSP-pmlog, HenryMCWang -
+
+//Div2-SW2-BSP-pmlog, HenryMCWang +
+#ifdef __FIH_PM_LOG__
+
+#define PMLOG_LENGTH	(1 << CONFIG_PMLOG_SHIFT)
+#define CONFIG_PMLOG_SHIFT	14
+
+static char pmlog_buf[PMLOG_LENGTH];
+static unsigned pmlog_start = 0, pmlog_end = 0;
+static int pmlog_len = PMLOG_LENGTH;
+static DEFINE_SPINLOCK(pmlog_lock);
+DECLARE_WAIT_QUEUE_HEAD(pmlog_wait);
+
+#define PMLOG_BUF_MASK (pmlog_len-1)
+#define PMLOG_BUF(idx) (pmlog_buf[(idx) & PMLOG_BUF_MASK])
+
+
+/*
+static int getlog(char * p, int count)
+{
+	char *trg;
+	int printed_chars = 0;
+	trg = p;
+	spin_lock(&pmlog_lock);
+	while( (pmlog_start != pmlog_end) && (count != 0)){
+	    *trg++ = PMLOG_BUF(pmlog_start);
+	    pmlog_start++;
+	    printed_chars++;
+	    count--;
+	}
+    spin_unlock(&pmlog_lock);
+	return printed_chars;
+}
+*/
+
+static void put_char(char c)
+{
+	PMLOG_BUF(pmlog_end) = c;
+
+	pmlog_end++;
+	if (pmlog_end - pmlog_start > pmlog_len)
+		pmlog_start = pmlog_end - pmlog_len;
+}
+
+static volatile unsigned int pmlog_cpu = UINT_MAX;
+static int new_text_line = 1;
+static int pmlog_time = 1;
+static char pmlog_tbuf[512];
+extern int __read_mostly timekeeping_suspended;
+
+static int vpmlog(const char *fmt, va_list args)
+{
+	int printed_len = 0;
+	char *p;
+	struct timespec ts;
+	struct rtc_time tm;
+
+	spin_lock(&pmlog_lock);
+
+    pmlog_cpu = smp_processor_id();
+    
+	/* Emit the output into the temporary buffer */
+	printed_len += vscnprintf(pmlog_tbuf, sizeof(pmlog_tbuf), fmt, args);
+    
+    
+	/* Copy the output into pmlog_buf. */
+	for (p = pmlog_tbuf; *p; p++) {
+		if (new_text_line) {
+
+			new_text_line = 0;
+			if (pmlog_time)
+			{
+				if (timekeeping_suspended == 0)
+				{
+					/* Follow the token with the time */
+					char tbuf[50], *tp;
+					unsigned tlen;
+					/*
+					unsigned long long t;
+					unsigned long nanosec_rem;
+					
+					t = cpu_clock(pmlog_cpu);
+					nanosec_rem = do_div(t, 1000000000);
+					tlen = sprintf(tbuf, "[%5lu] ", (unsigned long) t);
+					*/
+					getnstimeofday(&ts);
+					rtc_time_to_tm(ts.tv_sec, &tm);
+					tlen = sprintf(tbuf, "[%02d/%02d %02d:%02d:%02d] ", 
+					tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec);
+					
+					for (tp = tbuf; tp < tbuf + tlen; tp++)
+					put_char(*tp);
+					printed_len += tlen;
+				}
+				else
+				{
+					/* Follow the token with the time */
+					char tbuf[50], *tp;
+					unsigned tlen;
+					/*
+					unsigned long long t;
+					unsigned long nanosec_rem;
+					
+					t = cpu_clock(pmlog_cpu);
+					nanosec_rem = do_div(t, 1000000000);
+					tlen = sprintf(tbuf, "[%5lu] ", (unsigned long) t);
+					*/
+					memcpy(tbuf, "[xx/xx xx:xx:xx]", sizeof("[xx/xx xx:xx:xx]"));
+					tlen = sizeof("[xx/xx xx:xx:xx]");
+					
+					for (tp = tbuf; tp < tbuf + tlen; tp++)
+						put_char(*tp);
+					printed_len += tlen;
+					
+				}
+			}
+			if (!*p)
+				break;
+		}
+
+		put_char(*p);
+		if (*p == '\n')
+			new_text_line = 1;
+	}
+
+	spin_unlock(&pmlog_lock);
+	
+	if (waitqueue_active(&pmlog_wait))
+		wake_up_interruptible(&pmlog_wait);
+	
+	return printed_len;
+}
+
+int pmlog(const char *fmt, ...)
+{
+	va_list args;
+	int r;
+
+	va_start(args, fmt);
+	r = vpmlog(fmt, args);
+	va_end(args);
+
+	return r;
+}
+
+/*
+static int pmlog_read_proc(char *page, char **start, off_t off,
+			       int count, int *eof, void *data)
+{
+	char * p = page;
+	int len = 0;
+	int offset;
+	
+	offset = off%(PAGE_SIZE);
+    len = getlog( p+offset, count);
+    
+    *start = page + offset;
+    if(len == 0)
+        *eof = 1;
+    else
+        *eof = 0;
+	return len;
+}
+*/
+
+/*
+ * Commands to do_pmlog:
+ *
+ * 	0 -- Close the log.  Currently a NOP.
+ * 	1 -- Open the log. Currently a NOP.
+ * 	2 -- Read from the log.
+ *	9 -- Return number of unread characters in the log buffer
+ */
+int do_pmlog(int type, char __user *buf, int len)
+{
+	unsigned i;
+	char c;
+	int error = 0;
+
+	switch (type) {
+	case 0:		/* Close log */
+		break;
+	case 1:		/* Open log */
+		break;
+	case 2:		/* Read from log */
+		error = -EINVAL;
+		if (!buf || len < 0)
+			goto out;
+		error = 0;
+		if (!len)
+			goto out;
+		if (!access_ok(VERIFY_WRITE, buf, len)) {
+			error = -EFAULT;
+			goto out;
+		}
+		error = wait_event_interruptible(pmlog_wait,
+							(pmlog_start - pmlog_end));
+		if (error)
+			goto out;
+		i = 0;
+		spin_lock_irq(&pmlog_lock);
+		while (!error && (pmlog_start != pmlog_end) && i < len) {
+			c = PMLOG_BUF(pmlog_start);
+			pmlog_start++;
+			spin_unlock_irq(&pmlog_lock);
+			error = __put_user(c,buf);
+			buf++;
+			i++;
+			cond_resched();
+			spin_lock_irq(&pmlog_lock);
+		}
+		spin_unlock_irq(&pmlog_lock);
+		if (!error)
+			error = i;
+		break;
+	case 9:		/* Number of chars in the log buffer */
+		error = pmlog_end - pmlog_start;
+		break;
+	default:
+		error = -EINVAL;
+		break;
+	}
+out:
+	return error;
+}
+
+#endif	// __FIH_PM_LOG__
+//Div2-SW2-BSP-pmlog, HenryMCWang -
 
 int get_expired_time(struct wake_lock *lock, ktime_t *expire_time)
 {
@@ -129,9 +410,22 @@ static int wakelock_stats_show(struct seq_file *m, void *unused)
 
 	ret = seq_puts(m, "name\tcount\texpire_count\twake_count\tactive_since"
 			"\ttotal_time\tsleep_time\tmax_time\tlast_change\n");
+	//Div2-SW2-BSP-pmlog, HenryMCWang +
+	ret += seq_puts(m, "<< *inactive_locks >> :\n");
+	//Div2-SW2-BSP-pmlog, HenryMCWang -
 	list_for_each_entry(lock, &inactive_locks, link)
 		ret = print_lock_stat(m, lock);
 	for (type = 0; type < WAKE_LOCK_TYPE_COUNT; type++) {
+		//Div2-SW2-BSP-pmlog, HenryMCWang +
+		if(type == 0)
+		{
+			ret += seq_puts(m, "<< *active_wake_locks[WAKE_LOCK_SUSPEND] >> :\n");
+		}
+		else
+		{
+			ret += seq_puts(m, "<< *active_wake_locks[WAKE_LOCK_IDLE] >> :\n");
+		}
+		//Div2-SW2-BSP-pmlog, HenryMCWang -
 		list_for_each_entry(lock, &active_wake_locks[type], link)
 			ret = print_lock_stat(m, lock);
 	}
@@ -228,6 +522,31 @@ static void print_active_locks(int type)
 	}
 }
 
+//Div2-SW2-BSP-pmlog, HenryMCWang +
+#if defined(CONFIG_FIH_POWER_LOG)
+static void pmlog_active_locks(int type)
+{
+	unsigned long irqflags;
+	struct wake_lock *lock;
+
+	BUG_ON(type >= WAKE_LOCK_TYPE_COUNT);
+	spin_lock_irqsave(&list_lock, irqflags);
+	list_for_each_entry(lock, &active_wake_locks[type], link) {
+		if (lock->flags & WAKE_LOCK_AUTO_EXPIRE) {
+			long timeout = lock->expires - jiffies;
+			if (timeout <= 0)
+				pmlog("wake lock %s, expired\n", lock->name);
+			else
+				pmlog("active wake lock %s, time left %ld\n",
+					lock->name, timeout);
+		} else
+			pmlog("active wake lock %s\n", lock->name);
+	}
+	spin_unlock_irqrestore(&list_lock, irqflags);
+}
+#endif
+//Div2-SW2-BSP-pmlog, HenryMCWang -
+
 static long has_wake_lock_locked(int type)
 {
 	struct wake_lock *lock, *n;
@@ -259,6 +578,70 @@ long has_wake_lock(int type)
 	return ret;
 }
 
+static void suspend_sys_sync(struct work_struct *work)
+{
+	if (debug_mask & DEBUG_SUSPEND)
+		pr_info("PM: Syncing filesystems ... \n");
+
+	sys_sync();
+
+	if (debug_mask & DEBUG_SUSPEND)
+		pr_info("sync done.\n");
+		
+	spin_lock(&suspend_sys_sync_lock);
+	suspend_sys_sync_count--;
+	spin_unlock(&suspend_sys_sync_lock);
+}
+static DECLARE_WORK(suspend_sys_sync_work, suspend_sys_sync);
+
+void suspend_sys_sync_queue(void)
+{
+	int ret;
+	
+	spin_lock(&suspend_sys_sync_lock);	
+	ret = queue_work(suspend_sys_sync_work_queue, &suspend_sys_sync_work);
+	if (ret)
+		  suspend_sys_sync_count++;
+	spin_unlock(&suspend_sys_sync_lock);
+}
+
+static bool suspend_sys_sync_abort;
+static void suspend_sys_sync_handler(unsigned long);
+static DEFINE_TIMER(suspend_sys_sync_timer, suspend_sys_sync_handler, 0, 0);
+/* value should be less then half of input event wake lock timeout value
+ * which is currently set to 5*HZ (see drivers/input/evdev.c)
+ */
+#define SUSPEND_SYS_SYNC_TIMEOUT (HZ/4)
+static void suspend_sys_sync_handler(unsigned long arg)
+{
+	if (suspend_sys_sync_count == 0) {
+		complete(&suspend_sys_sync_comp);
+	} else if (has_wake_lock(WAKE_LOCK_SUSPEND)) {
+		suspend_sys_sync_abort = true;
+		complete(&suspend_sys_sync_comp);
+	} else {
+		mod_timer(&suspend_sys_sync_timer, jiffies +
+				SUSPEND_SYS_SYNC_TIMEOUT);
+	}
+}
+
+int suspend_sys_sync_wait(void)
+{
+	suspend_sys_sync_abort = false;
+	
+	if (suspend_sys_sync_count != 0) {
+		mod_timer(&suspend_sys_sync_timer, jiffies +
+				SUSPEND_SYS_SYNC_TIMEOUT);
+		wait_for_completion(&suspend_sys_sync_comp);
+	}
+	if (suspend_sys_sync_abort) {
+		pr_info("suspend aborted....while waiting for sys_sync\n");
+		return -EAGAIN;
+	}
+
+	return 0;
+}
+
 static void suspend(struct work_struct *work)
 {
 	int ret;
@@ -271,9 +654,16 @@ static void suspend(struct work_struct *work)
 	}
 
 	entry_event_num = current_event_num;
-	sys_sync();
+	suspend_sys_sync_queue();
 	if (debug_mask & DEBUG_SUSPEND)
 		pr_info("suspend: enter suspend\n");
+
+	//Div2-SW2-BSP-pmlog, HenryMCWang +
+	#if defined(CONFIG_FIH_POWER_LOG)
+	pmlog("suspend(): enter suspend\n");
+	#endif
+	//Div2-SW2-BSP-pmlog, HenryMCWang -
+	
 	ret = pm_suspend(requested_suspend_state);
 	if (debug_mask & DEBUG_EXIT_SUSPEND) {
 		struct timespec ts;
@@ -508,6 +898,11 @@ void wake_unlock(struct wake_lock *lock)
 		if (lock == &main_wake_lock) {
 			if (debug_mask & DEBUG_SUSPEND)
 				print_active_locks(WAKE_LOCK_SUSPEND);
+			//Div2-SW2-BSP-pmlog, HenryMCWang +
+			#if defined(CONFIG_FIH_POWER_LOG)
+			pmlog_active_locks(WAKE_LOCK_SUSPEND);
+			#endif
+			//Div2-SW2-BSP-pmlog, HenryMCWang -
 #ifdef CONFIG_WAKELOCK_STAT
 			update_sleep_wait_stats_locked(0);
 #endif
@@ -563,6 +958,14 @@ static int __init wakelocks_init(void)
 		goto err_platform_driver_register;
 	}
 
+	INIT_COMPLETION(suspend_sys_sync_comp);
+	suspend_sys_sync_work_queue =
+		create_singlethread_workqueue("suspend_sys_sync");
+	if (suspend_sys_sync_work_queue == NULL) {
+		ret = -ENOMEM;
+		goto err_suspend_sys_sync_work_queue;
+	}
+
 	suspend_work_queue = create_singlethread_workqueue("suspend");
 	if (suspend_work_queue == NULL) {
 		ret = -ENOMEM;
@@ -573,8 +976,22 @@ static int __init wakelocks_init(void)
 	proc_create("wakelocks", S_IRUGO, NULL, &wakelock_stats_fops);
 #endif
 
+//Div2-SW2-BSP-pmlog, HenryMCWang +
+#ifdef __FIH_PM_STATISTICS__
+	create_proc_read_entry("pms", S_IRUGO, NULL,
+				pms_read_proc, NULL);
+#endif	// __FIH_PM_STATISTICS__
+///-FIH_ADQ
+
+#ifdef __FIH_PM_LOG__
+	//create_proc_read_entry("pmlog", S_IRUGO, NULL,
+	//			pmlog_read_proc, NULL);
+#endif	//__FIH_PM_LOG__
+//Div2-SW2-BSP-pmlog, HenryMCWang -
+
 	return 0;
 
+err_suspend_sys_sync_work_queue:
 err_suspend_work_queue:
 	platform_driver_unregister(&power_driver);
 err_platform_driver_register:
@@ -594,6 +1011,7 @@ static void  __exit wakelocks_exit(void)
 	remove_proc_entry("wakelocks", NULL);
 #endif
 	destroy_workqueue(suspend_work_queue);
+	destroy_workqueue(suspend_sys_sync_work_queue);
 	platform_driver_unregister(&power_driver);
 	platform_device_unregister(&power_device);
 	wake_lock_destroy(&unknown_wakeup);

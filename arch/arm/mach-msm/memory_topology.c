@@ -21,7 +21,8 @@
 
 /* Return the number of chipselects populated with a memory bank */
 /* This is 7x30 only and will be extended in the future */
-
+/*Div2-SW2-BSP,JOE HSU,Setting Memory model SPARSEMEM and enable CS1*/
+#if 0
 unsigned int get_num_populated_chipselects()
 {
 	/* Currently, Linux cannot determine the memory toplogy of a target */
@@ -37,4 +38,4 @@ unsigned int get_num_populated_chipselects()
 	}
 	return num_chipselects;
 }
-
+#endif

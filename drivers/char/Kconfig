@@ -1191,4 +1191,8 @@ config CSDIO_DEVICE_ID
 	  module parameters.
 .
 endmenu
-
+#---------------------------------------------
+# Provide a char type driver of smd for FTM to communicate with modem.
+# Added by Lo, Chien Chung (Paul Lo). 2009/06/16
+source "drivers/char/ftm_smd/Kconfig"
+#--------------------------------------------

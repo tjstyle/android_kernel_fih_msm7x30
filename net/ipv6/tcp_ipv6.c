@@ -2120,6 +2120,53 @@ out:
 	return 0;
 }
 
+/* FIHTDC, Div2-SW2-BSP, Penho, packet filter { */
+#ifdef CONFIG_FIH_PACKET_FILTER
+/* FIH; Tiger; 2009/12/10 { */
+int tcpFilter6_seq_show(struct seq_file *seq, void *v)
+{
+	struct tcp_iter_state *st;
+
+	if (v == SEQ_START_TOKEN) {
+		goto out;
+	}
+	st = seq->private;
+
+	switch (st->state) {
+	case TCP_SEQ_STATE_LISTENING:
+	case TCP_SEQ_STATE_ESTABLISHED: 
+		{
+			struct sock *sk = (struct sock *)v;
+			struct inet_sock *inet = inet_sk(sk);
+			__u16 srcp = ntohs(inet->inet_sport);
+
+			seq_printf(seq, "%04X", srcp);
+		}
+
+		break;
+	case TCP_SEQ_STATE_OPENREQ:
+		break;
+	case TCP_SEQ_STATE_TIME_WAIT:
+		break;
+	}
+out:
+	return 0;
+}
+
+static struct tcp_seq_afinfo tcpFilter6_seq_afinfo = {
+	.name		= "tcpFilter6",
+	.family		= AF_INET6,
+	.seq_fops	= {
+		.owner		= THIS_MODULE,
+	},
+	.seq_ops	= {
+		.show		= tcpFilter6_seq_show,
+	},
+};
+/* } FIH; Tiger; 2009/12/10 */
+#endif	// CONFIG_FIH_PACKET_FILTER
+/* } FIHTDC, Div2-SW2-BSP, Penho, packet filter */
+
 static struct tcp_seq_afinfo tcp6_seq_afinfo = {
 	.name		= "tcp6",
 	.family		= AF_INET6,
@@ -2133,6 +2180,13 @@ static struct tcp_seq_afinfo tcp6_seq_afinfo = {
 
 int __net_init tcp6_proc_init(struct net *net)
 {
+/* FIHTDC, Div2-SW2-BSP, Penho, packet filter { */
+#ifdef CONFIG_FIH_PACKET_FILTER
+/* FIH; Tiger; 2009/12/10 { */
+	tcp_proc_register(net, &tcpFilter6_seq_afinfo);
+/* } FIH; Tiger; 2009/12/10 */
+#endif	// CONFIG_FIH_PACKET_FILTER
+/* } FIHTDC, Div2-SW2-BSP, Penho, packet filter */
 	return tcp_proc_register(net, &tcp6_seq_afinfo);
 }
 

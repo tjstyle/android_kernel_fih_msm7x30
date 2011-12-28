@@ -19,6 +19,11 @@
 #include <linux/err.h>
 #include <linux/slab.h>
 #include <linux/pm_runtime.h>
+/* FIHTDC, Div2-SW2-BSP, Penho, SuspendLog { */
+#ifdef CONFIG_FIH_SUSPEND_RESUME_LOG
+#include <linux/kallsyms.h>
+#endif	// CONFIG_FIH_SUSPEND_RESUME_LOG
+/* } FIHTDC, Div2-SW2-BSP, Penho, SuspendLog */
 
 #include "base.h"
 
@@ -690,7 +695,16 @@ static int platform_legacy_suspend(struct device *dev, pm_message_t mesg)
 	int ret = 0;
 
 	if (dev->driver && pdrv->suspend)
+/* FIHTDC, Div2-SW2-BSP, Penho, SuspendLog { */
+#ifdef CONFIG_FIH_SUSPEND_RESUME_LOG
+	{
+		print_symbol("platform_legacy_suspend: %s\n", (unsigned long)pdrv->suspend);
 		ret = pdrv->suspend(pdev, mesg);
+	}
+#else	// CONFIG_FIH_SUSPEND_RESUME_LOG
+		ret = pdrv->suspend(pdev, mesg);
+#endif	// CONFIG_FIH_SUSPEND_RESUME_LOG
+/* } FIHTDC, Div2-SW2-BSP, Penho, SuspendLog */
 
 	return ret;
 }
@@ -702,7 +716,16 @@ static int platform_legacy_resume(struct device *dev)
 	int ret = 0;
 
 	if (dev->driver && pdrv->resume)
+/* FIHTDC, Div2-SW2-BSP, Penho, SuspendLog { */
+#ifdef CONFIG_FIH_SUSPEND_RESUME_LOG
+	{
+		print_symbol("platform_legacy_resume: %s\n", (unsigned long)pdrv->resume);
 		ret = pdrv->resume(pdev);
+	}
+#else	// CONFIG_FIH_SUSPEND_RESUME_LOG
+		ret = pdrv->resume(pdev);
+#endif	// CONFIG_FIH_SUSPEND_RESUME_LOG
+/* } FIHTDC, Div2-SW2-BSP, Penho, SuspendLog */
 
 	return ret;
 }

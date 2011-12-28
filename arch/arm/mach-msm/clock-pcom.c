@@ -40,7 +40,34 @@ static DEFINE_SPINLOCK(pc_clk_lock);
 /*
  * glue for the proc_comm interface
  */
+/* FIHTDC, Div2-SW2-BSP, Penho, TRACE_CLK { */
+#ifdef CONFIG_FIH_POWER_LOG
+#include "linux/pmdbg.h"
+#include <linux/kallsyms.h>
+#include "../include/asm/clkdev.h"
+
+int _pc_clk_enable(unsigned id);
 int pc_clk_enable(unsigned id)
+{
+	int ret;
+	struct clk_pcom *clk = &pcom_clocks[id];
+	if (g_fih_trace_pcclk == id) {
+		printk(KERN_INFO "[clk] ======================> clk_enable(%d)\n", id);
+		if (msm_pm_debug_mask & MSM_PM_DEBUG_FIH_CALL_STACK)
+			__WARN_printf(" ");
+		ret = _pc_clk_enable(id);
+		printk(KERN_INFO "[clk] =========================================================== %d-%d\n", clk->always_on, clk->count);
+	}
+	else ret = _pc_clk_enable(id);
+
+	return ret;
+}
+
+int _pc_clk_enable(unsigned id)
+#else	// CONFIG_FIH_POWER_LOG
+int pc_clk_enable(unsigned id)
+#endif	// CONFIG_FIH_POWER_LOG
+/* } FIHTDC, Div2-SW2-BSP, Penho, TRACE_CLK */
 {
 	int rc;
 	unsigned long flags;
@@ -66,7 +93,27 @@ unlock:
 	return rc;
 }
 
+/* FIHTDC, Div2-SW2-BSP, Penho, TRACE_CLK { */
+#ifdef CONFIG_FIH_POWER_LOG
+void _pc_clk_disable(unsigned id);
 void pc_clk_disable(unsigned id)
+{
+	struct clk_pcom *clk = &pcom_clocks[id];
+	if (g_fih_trace_pcclk == id) {
+		printk(KERN_INFO "[clk] ======================> clk_disable(%d)\n", id);
+		if (msm_pm_debug_mask & MSM_PM_DEBUG_FIH_CALL_STACK)
+			__WARN_printf(" ");
+		_pc_clk_disable(id);
+		printk(KERN_INFO "[clk] =========================================================== %d-%d\n", clk->always_on, clk->count);
+	}
+	else _pc_clk_disable(id);
+}
+
+void _pc_clk_disable(unsigned id)
+#else	// CONFIG_FIH_POWER_LOG
+void _pc_clk_disable(unsigned id)
+#endif	// CONFIG_FIH_POWER_LOG
+/* } FIHTDC, Div2-SW2-BSP, Penho, TRACE_CLK */
 {
 	unsigned long flags;
 	struct clk_pcom *clk = &pcom_clocks[id];
@@ -220,3 +267,22 @@ struct clk_ops clk_ops_pcom_div2 = {
 	.is_enabled = pc_clk_is_enabled,
 	.round_rate = pc_clk_round_rate,
 };
+
+/* FIHTDC, Div2-SW2-BSP, Penho, TRACE_CLK { */
+#ifdef CONFIG_FIH_POWER_LOG
+#include <linux/module.h>
+
+void show_msm_clock_require_tcxo(void)
+{
+	int i, h = 0;
+	for (i = 0; i < P_NR_CLKS; i++) {
+		if (pcom_clocks[i].count) {
+			if (!h) {printk(KERN_INFO "[PM] clk reqed id : "); h = 1;}
+			printk("%d(%d) ", i, pcom_clocks[i].count);
+		}
+	}
+	if (h) printk("\n");
+}
+EXPORT_SYMBOL(show_msm_clock_require_tcxo);
+#endif	// CONFIG_FIH_POWER_LOG
+/* } FIHTDC, Div2-SW2-BSP, Penho, TRACE_CLK */

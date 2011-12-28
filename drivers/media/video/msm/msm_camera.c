@@ -58,6 +58,8 @@ int g_v4l2_opencnt;
 static int camera_node;
 static enum msm_camera_type camera_type[MSM_MAX_CAMERA_SENSORS];
 static uint32_t sensor_mount_angle[MSM_MAX_CAMERA_SENSORS];
+static uint32_t sensor_Orientation[MSM_MAX_CAMERA_SENSORS];
+static struct fih_parameters_data sensor_parameters_data[MSM_MAX_CAMERA_SENSORS];
 
 static const char *vfe_config_cmd[] = {
 	"CMD_GENERAL",  /* 0 */
@@ -1572,8 +1574,32 @@ static int msm_get_sensor_info(struct msm_sync *sync, void __user *arg)
 	memcpy(&info.name[0],
 		sdata->sensor_name,
 		MAX_SENSOR_NAME);
+	if(sdata->parameters_data!=NULL)
+	{
+		info.autoexposure=sdata->parameters_data->autoexposure;
+		info.effects=sdata->parameters_data->effects;
+		info.wb=sdata->parameters_data->wb;
+		info.antibanding=sdata->parameters_data->antibanding;
+		info.flash=sdata->parameters_data->flash;
+		info.focus=sdata->parameters_data->focus;
+		info.ISO=sdata->parameters_data->ISO;
+		info.lensshade=sdata->parameters_data->lensshade;
+		info.scenemode=sdata->parameters_data->scenemode;
+		info.continuous_af=sdata->parameters_data->continuous_af;
+		info.touchafaec=sdata->parameters_data->touchafaec;
+		info.frame_rate_modes=sdata->parameters_data->frame_rate_modes;
+		info.max_brightness=sdata->parameters_data->max_brightness;
+		info.max_contrast=sdata->parameters_data->max_contrast;
+		info.max_saturation=sdata->parameters_data->max_saturation;
+		info.max_sharpness=sdata->parameters_data->max_sharpness;
+		info.min_brightness=sdata->parameters_data->min_brightness;
+		info.min_contrast=sdata->parameters_data->min_contrast;
+		info.min_saturation=sdata->parameters_data->min_saturation;
+		info.min_sharpness=sdata->parameters_data->min_sharpness;
+	}
 	info.flash_enabled = sdata->flash_data->flash_type !=
 		MSM_CAMERA_FLASH_NONE;
+	info.sensor_Orientation= sdata->sensor_Orientation;
 
 	/* copy back to user space */
 	if (copy_to_user((void *)arg,
@@ -1604,6 +1630,8 @@ static int msm_get_camera_info(void __user *arg)
 		info.has_3d_support[i] = 0;
 		info.is_internal_cam[i] = 0;
 		info.s_mount_angle[i] = sensor_mount_angle[i];
+		info.sensor_Orientation[i]=sensor_Orientation[i];
+		memcpy(&info.parameters_data[i], &sensor_parameters_data[i], sizeof(struct fih_parameters_data));
 		switch (camera_type[i]) {
 		case FRONT_CAMERA_2D:
 			info.is_internal_cam[i] = 1;
@@ -2448,6 +2476,7 @@ static int __msm_release(struct msm_sync *sync)
 			kfree(region);
 		}
 		msm_queue_drain(&sync->pict_q, list_pict);
+		msm_queue_drain(&sync->event_q, list_config);
 
 		wake_unlock(&sync->wake_lock);
 		sync->apps_id = NULL;
@@ -2946,6 +2975,7 @@ static int __msm_open(struct msm_sync *sync, const char *const apps_id,
 			if (rc < 0) {
 				pr_err("%s: sensor init failed: %d\n",
 					__func__, rc);
+				msm_camio_sensor_clk_off(sync->pdev);
 				goto msm_open_done;
 			}
 			rc = sync->vfefn.vfe_init(&msm_vfe_s,
@@ -2953,6 +2983,8 @@ static int __msm_open(struct msm_sync *sync, const char *const apps_id,
 			if (rc < 0) {
 				pr_err("%s: vfe_init failed at %d\n",
 					__func__, rc);
+				sync->sctrl.s_release();
+				msm_camio_sensor_clk_off(sync->pdev);
 				goto msm_open_done;
 			}
 		} else {
@@ -3328,6 +3360,8 @@ int msm_camera_drv_start(struct platform_device *dev,
 
 	camera_type[camera_node] = sync->sctrl.s_camera_type;
 	sensor_mount_angle[camera_node] = sync->sctrl.s_mount_angle;
+	sensor_Orientation[camera_node] = sync->sdata->sensor_Orientation;
+	memcpy(&sensor_parameters_data[camera_node], sync->sdata->parameters_data, sizeof(struct fih_parameters_data));
 	camera_node++;
 
 	list_add(&sync->list, &msm_sensors);

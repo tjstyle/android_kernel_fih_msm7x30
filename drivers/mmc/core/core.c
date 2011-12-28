@@ -42,6 +42,12 @@
 static struct workqueue_struct *workqueue;
 static struct wake_lock mmc_delayed_work_wake_lock;
 
+/* FIHTDC, Div2-SW2-BSP, Penho, UsbPorting { */
+#ifdef CONFIG_FIH_FXX
+bool storage_state = false;
+#endif	// CONFIG_FIH_FXX
+/* } FIHTDC, Div2-SW2-BSP, Penho, UsbPorting */
+
 /*
  * Enabling software CRCs on the data blocks can be a significant (30%)
  * performance cost, and for other reasons may not always be desired.
@@ -241,7 +247,7 @@ void mmc_wait_for_req(struct mmc_host *host, struct mmc_request *mrq)
 
 	mmc_start_request(host, mrq);
 
-	wait_for_completion(&complete);
+	wait_for_completion_io(&complete);
 }
 
 EXPORT_SYMBOL(mmc_wait_for_req);
@@ -1112,6 +1118,22 @@ void mmc_detect_change(struct mmc_host *host, unsigned long delay)
 
 EXPORT_SYMBOL(mmc_detect_change);
 
+// FihtdcCode@20111102 WeiChu add for SF4HC.B-1209 begin
+#ifdef CONFIG_BROADCOM_BCM4329_WLAN
+// Broadcom patch CSP#459059, chihchia +++
+//BRCM 0929 start
+static int wifi_inserted = 0;
+
+void set_wifi_inserted(int value)
+{
+    printk("[BCM4329] set_wifi_inserted:%d\n", value);
+    wifi_inserted = value;
+}
+EXPORT_SYMBOL(set_wifi_inserted);
+//BRCM 0929 end
+// CSP#459059, chihchia ---
+#endif
+// FihtdcCode@20111102 WeiChu add for SF4HC.B-1209 end
 
 void mmc_rescan(struct work_struct *work)
 {
@@ -1121,6 +1143,18 @@ void mmc_rescan(struct work_struct *work)
 	int err;
 	int extend_wakelock = 0;
 	unsigned long flags;
+
+    // FihtdcCode@20111102 WeiChu add for SF4HC.B-1209 begin
+    #ifdef CONFIG_BROADCOM_BCM4329_WLAN
+    // Broadcom patch CSP#459059, chihchia +++
+    if(wifi_inserted && host->index == 1)
+    {
+        printk("[BCM4329] goto out to ignore rescan\n");
+        goto out;
+    }
+    // CSP#459059, chihchia ---
+    #endif
+    // FihtdcCode@20111102 WeiChu add for SF4HC.B-1209 end
 
 	spin_lock_irqsave(&host->lock, flags);
 	if (host->rescan_disable) {
@@ -1212,6 +1246,15 @@ void mmc_rescan(struct work_struct *work)
 	mmc_power_off(host);
 
 out:
+/* FIHTDC, Div2-SW2-BSP, Penho, UsbPorting { */
+#ifdef CONFIG_FIH_FXX
+	// This is used for checking that SD card is inserted or not.
+	// By another project, the index number may be different. (mmc interface index)
+	if (host->index == 2)
+		storage_state = (host->bus_ops == NULL) ? false : true;
+#endif	// CONFIG_FIH_FXX
+/* } FIHTDC, Div2-SW2-BSP, Penho, UsbPorting */
+
 	if (extend_wakelock)
 		wake_lock_timeout(&mmc_delayed_work_wake_lock, HZ / 2);
 	else

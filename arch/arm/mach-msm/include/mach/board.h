@@ -102,7 +102,10 @@ struct msm_camera_legacy_device_platform_data {
 #define MSM_CAMERA_FLASH_SRC_PMIC (0x00000001<<0)
 #define MSM_CAMERA_FLASH_SRC_PWM  (0x00000001<<1)
 #define MSM_CAMERA_FLASH_SRC_CURRENT_DRIVER	(0x00000001<<2)
-
+#define MSM_CAMERA_SENSOR_ORIENTATION_0 0
+#define MSM_CAMERA_SENSOR_ORIENTATION_90 1
+#define MSM_CAMERA_SENSOR_ORIENTATION_180 2
+#define MSM_CAMERA_SENSOR_ORIENTATION_270 3
 struct msm_camera_sensor_flash_pmic {
 	uint8_t num_of_src;
 	uint32_t low_current;
@@ -143,6 +146,31 @@ struct msm_camera_sensor_flash_data {
 	struct msm_camera_sensor_flash_src *flash_src;
 };
 
+#define MAX_SENSOR_PARAMETERS 256
+
+struct msm_parameters_data {
+	uint32_t autoexposure;
+	uint32_t effects;
+	uint32_t wb;
+	uint32_t antibanding;
+	uint32_t flash;
+	uint32_t focus;
+	uint32_t ISO;
+	uint32_t lensshade;
+	uint32_t scenemode;
+	uint32_t continuous_af;
+	uint32_t touchafaec;
+	uint32_t frame_rate_modes;
+	int8_t  max_brightness;
+	int8_t  max_contrast;
+	int8_t  max_saturation;
+	int8_t  max_sharpness;
+	int8_t  min_brightness;
+	int8_t  min_contrast;
+	int8_t  min_saturation;
+	int8_t  min_sharpness;
+};
+
 struct msm_camera_sensor_strobe_flash_data {
 	uint8_t flash_trigger;
 	uint8_t flash_charge; /* pin for charge */
@@ -158,10 +186,40 @@ struct msm_camera_sensor_info {
 	const char *sensor_name;
 	int sensor_reset;
 	int sensor_pwd;
+	int sensor_Orientation;
 	int vcm_pwd;
 	int vcm_enable;
 	int mclk;
 	int flash_type;
+
+	/* Declare for camea pins */
+	int MCLK_PIN;
+	int mclk_sw_pin;
+	int pwdn_pin;
+	int rst_pin;
+	int standby_pin;
+	int vga_pwdn_pin;
+	int vga_rst_pin;
+	int vga_power_en_pin;
+	int GPIO_FLASHLED;
+	int GPIO_FLASHLED_DRV_EN;
+
+	/* Declare for camera power */
+	int AF_pmic_en_pin;
+	int cam_v2p8_en_pin;
+	const char *cam_vreg_vddio_id;
+	const char *cam_vreg_acore_id;
+
+	/* Flash LED setting */
+	int flash_target_addr;
+	int flash_target;
+	int flash_bright;
+	int flash_main_waittime;
+	int flash_main_starttime;
+	int flash_second_waittime;
+	int preflash_light;
+	int fast_af_retest_target;
+	int torch_light;
 	struct msm_camera_device_platform_data *pdata;
 	struct resource *resource;
 	uint8_t num_resources;
@@ -169,6 +227,7 @@ struct msm_camera_sensor_info {
 	int csi_if;
 	struct msm_camera_csi_params csi_params;
 	struct msm_camera_sensor_strobe_flash_data *strobe_flash_data;
+	struct msm_parameters_data *parameters_data;
 };
 
 struct clk;
@@ -288,12 +347,20 @@ struct msm_fb_platform_data {
 struct msm_hdmi_platform_data {
 	int irq;
 	int (*cable_detect)(int insert);
+#ifdef CONFIG_FB_MSM_HDMI_ADV7520_PANEL	
 	int (*comm_power)(int on, int show);
 	int (*enable_5v)(int on);
 	int (*core_power)(int on, int show);
 	int (*cec_power)(int on);
 	int (*init_irq)(void);
 	bool (*check_hdcp_hw_support)(void);
+#endif
+/* FIHTDC, Div2-SW2-BSP SungSCLee, HDMI { */	
+#ifdef CONFIG_FB_MSM_HDMI_ADV7525_PANEL	
+	int (*intr_detect)(void);
+	void (*setup_int_power)(int);	
+#endif	
+/* } FIHTDC, Div2-SW2-BSP SungSCLee, HDMI */
 };
 
 struct msm_i2c_platform_data {

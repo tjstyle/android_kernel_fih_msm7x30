@@ -91,6 +91,9 @@
 #define AUDIO_GET_ACDB_BLK _IOW(AUDIO_IOCTL_MAGIC, 96,  \
 					struct msm_acdb_cmd_device)
 
+#define FM_CODECSETTING _IOR(AUDIO_IOCTL_MAGIC, 95, unsigned)//MM-RC-ChangeFMPath-00+
+#define GET_DUAL_MIC_SETTING _IOR(AUDIO_IOCTL_MAGIC, 96, unsigned)//MM-RC-DualMicOrNot-00+
+
 #define	AUDIO_MAX_COMMON_IOCTL_NUM	100
 
 

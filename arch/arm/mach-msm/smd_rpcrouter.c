@@ -1,7 +1,7 @@
 /* arch/arm/mach-msm/smd_rpcrouter.c
  *
  * Copyright (C) 2007 Google, Inc.
- * Copyright (c) 2007-2010, Code Aurora Forum. All rights reserved.
+ * Copyright (c) 2007-2011, Code Aurora Forum. All rights reserved.
  * Author: San Mehat <san@android.com>
  *
  * This software is licensed under the terms of the GNU General Public
@@ -40,6 +40,7 @@
 #include <linux/platform_device.h>
 #include <linux/uaccess.h>
 #include <linux/debugfs.h>
+#include <linux/ratelimit.h>
 
 #include <asm/byteorder.h>
 
@@ -48,6 +49,8 @@
 #include "smd_rpcrouter.h"
 #include "modem_notifier.h"
 #include "smd_rpc_sym.h"
+
+extern unsigned int debug_rpcmsg_enable;  //SW2-5-1-MP-DbgCfgTool-00+
 
 enum {
 	SMEM_LOG = 1U << 0,
@@ -68,55 +71,55 @@ static int smd_rpcrouter_debug_mask;
 module_param_named(debug_mask, smd_rpcrouter_debug_mask,
 		   int, S_IRUGO | S_IWUSR | S_IWGRP);
 
-#define DIAG(x...) printk(KERN_ERR "[RR] ERROR " x)
+#define DIAG(x...) pr_err("[RR] ERROR " x)
 
 #if defined(CONFIG_MSM_ONCRPCROUTER_DEBUG)
 #define D(x...) do { \
 if (smd_rpcrouter_debug_mask & RTR_DBG) \
-	printk(KERN_ERR x); \
+	pr_info_ratelimited(x); \
 } while (0)
 
 #define RR(x...) do { \
 if (smd_rpcrouter_debug_mask & R2R_MSG) \
-	printk(KERN_ERR "[RR] "x); \
+	pr_info_ratelimited("[RR] "x); \
 } while (0)
 
 #define RAW(x...) do { \
 if (smd_rpcrouter_debug_mask & R2R_RAW) \
-	printk(KERN_ERR "[RAW] "x); \
+	pr_info_ratelimited("[RAW] "x); \
 } while (0)
 
 #define RAW_HDR(x...) do { \
 if (smd_rpcrouter_debug_mask & R2R_RAW_HDR) \
-	printk(KERN_ERR "[HDR] "x); \
+	pr_info_ratelimited("[HDR] "x); \
 } while (0)
 
 #define RAW_PMR(x...) do { \
 if (smd_rpcrouter_debug_mask & RAW_PMR) \
-	printk(KERN_ERR "[PMR] "x); \
+	pr_info_ratelimited("[PMR] "x); \
 } while (0)
 
 #define RAW_PMR_NOMASK(x...) do { \
-	printk(KERN_ERR "[PMR] "x); \
+	pr_info_ratelimited("[PMR] "x); \
 } while (0)
 
 #define RAW_PMW(x...) do { \
 if (smd_rpcrouter_debug_mask & RAW_PMW) \
-	printk(KERN_ERR "[PMW] "x); \
+	pr_info_ratelimited("[PMW] "x); \
 } while (0)
 
 #define RAW_PMW_NOMASK(x...) do { \
-	printk(KERN_ERR "[PMW] "x); \
+	pr_info_ratelimited("[PMW] "x); \
 } while (0)
 
 #define IO(x...) do { \
 if (smd_rpcrouter_debug_mask & RPC_MSG) \
-	printk(KERN_ERR "[RPC] "x); \
+	pr_info_ratelimited("[RPC] "x); \
 } while (0)
 
 #define NTFY(x...) do { \
 if (smd_rpcrouter_debug_mask & NTFY_MSG) \
-	printk(KERN_ERR "[NOTIFY] "x); \
+	pr_info_ratelimited("[NOTIFY] "x); \
 } while (0)
 #else
 #define D(x...) do { } while (0)
@@ -210,6 +213,7 @@ struct rpcrouter_xprt_info {
 	uint32_t need_len;
 	struct work_struct read_data;
 	struct workqueue_struct *workqueue;
+	unsigned char r2r_buf[RPCROUTER_MSGSIZE_MAX];
 };
 
 static LIST_HEAD(xprt_info_list);
@@ -221,14 +225,10 @@ static struct rpcrouter_xprt_info *rpcrouter_get_xprt_info(uint32_t remote_pid)
 {
 	struct rpcrouter_xprt_info *xprt_info;
 
-	mutex_lock(&xprt_info_list_lock);
 	list_for_each_entry(xprt_info, &xprt_info_list, list) {
-		if (xprt_info->remote_pid == remote_pid) {
-			mutex_unlock(&xprt_info_list_lock);
+		if (xprt_info->remote_pid == remote_pid)
 			return xprt_info;
 		}
-	}
-	mutex_unlock(&xprt_info_list_lock);
 	return NULL;
 }
 
@@ -283,6 +283,10 @@ static void modem_reset_start_cleanup(void)
 	struct msm_rpc_reply *reply, *reply_tmp;
 	unsigned long flags;
 
+	//SW2-5-1-MP-DbgCfgTool-00+[
+	printk(KERN_ERR "[RPC] Enter modem_reset_start_cleanup\n");
+	//SW2-5-1-MP-DbgCfgTool-00+]
+	
 	spin_lock_irqsave(&local_endpoints_lock, flags);
 	/* remove all partial packets received */
 	list_for_each_entry(ept, &local_endpoints, list) {
@@ -548,6 +552,9 @@ int msm_rpcrouter_destroy_local_endpoint(struct msm_rpc_endpoint *ept)
 	/* Endpoint with dst_pid = 0xffffffff corresponds to that of
 	** router port. So don't send a REMOVE CLIENT message while
 	** destroying it.*/
+	spin_lock_irqsave(&local_endpoints_lock, flags);
+	list_del(&ept->list);
+	spin_unlock_irqrestore(&local_endpoints_lock, flags);
 	if (ept->dst_pid != 0xffffffff) {
 		msg.cmd = RPCROUTER_CTRL_CMD_REMOVE_CLIENT;
 		msg.cli.pid = ept->pid;
@@ -579,9 +586,6 @@ int msm_rpcrouter_destroy_local_endpoint(struct msm_rpc_endpoint *ept)
 
 	wake_lock_destroy(&ept->read_q_wake_lock);
 	wake_lock_destroy(&ept->reply_q_wake_lock);
-	spin_lock_irqsave(&local_endpoints_lock, flags);
-	list_del(&ept->list);
-	spin_unlock_irqrestore(&local_endpoints_lock, flags);
 	kfree(ept);
 	return 0;
 }
@@ -611,16 +615,11 @@ static int rpcrouter_create_remote_endpoint(uint32_t pid, uint32_t cid)
 static struct msm_rpc_endpoint *rpcrouter_lookup_local_endpoint(uint32_t cid)
 {
 	struct msm_rpc_endpoint *ept;
-	unsigned long flags;
 
-	spin_lock_irqsave(&local_endpoints_lock, flags);
 	list_for_each_entry(ept, &local_endpoints, list) {
-		if (ept->cid == cid) {
-			spin_unlock_irqrestore(&local_endpoints_lock, flags);
+		if (ept->cid == cid)
 			return ept;
-		}
 	}
-	spin_unlock_irqrestore(&local_endpoints_lock, flags);
 	return NULL;
 }
 
@@ -935,8 +934,6 @@ static char *type_to_str(int i)
 }
 #endif
 
-static uint32_t r2r_buf[RPCROUTER_MSGSIZE_MAX];
-
 static void do_read_data(struct work_struct *work)
 {
 	struct rr_header hdr;
@@ -979,9 +976,10 @@ static void do_read_data(struct work_struct *work)
 		if (xprt_info->remote_pid == -1)
 			xprt_info->remote_pid = hdr.src_pid;
 
-		if (rr_read(xprt_info, r2r_buf, hdr.size))
+		if (rr_read(xprt_info, xprt_info->r2r_buf, hdr.size))
 			goto fail_io;
-		process_control_msg(xprt_info, (void *) r2r_buf, hdr.size);
+		process_control_msg(xprt_info,
+				    (void *) xprt_info->r2r_buf, hdr.size);
 		goto done;
 	}
 
@@ -1036,9 +1034,25 @@ static void do_read_data(struct work_struct *work)
 				       hdr.src_cid);
 	}
 #endif
+	spin_lock_irqsave(&local_endpoints_lock, flags);
 
+	//SW2-5-1-MP-DbgCfgTool-00*[
+	if (debug_rpcmsg_enable)
+	{
+		rq = (struct rpc_request_hdr *) frag->data;
+		if (rq->type == 0 && rq->xid != 0)  //m2a RPC Call
+		{
+			printk(KERN_INFO "[RPC] AMSS to LINUX: prog = 0x%08x, proc = 0x%x, xid = 0x%x\n", 
+			be32_to_cpu(rq->prog), 
+			be32_to_cpu(rq->procedure),
+			be32_to_cpu(rq->xid));
+		}
+	}
+	//SW2-5-1-MP-DbgCfgTool-00*]
+	
 	ept = rpcrouter_lookup_local_endpoint(hdr.dst_cid);
 	if (!ept) {
+		spin_unlock_irqrestore(&local_endpoints_lock, flags);
 		DIAG("no local ept for cid %08x\n", hdr.dst_cid);
 		kfree(frag);
 		goto done;
@@ -1048,7 +1062,7 @@ static void do_read_data(struct work_struct *work)
 	 * and if so, append this fragment to that packet.
 	 */
 	mid = PACMARK_MID(pm);
-	spin_lock_irqsave(&ept->incomplete_lock, flags);
+	spin_lock(&ept->incomplete_lock);
 	list_for_each_entry(pkt, &ept->incomplete, list) {
 		if (pkt->mid == mid) {
 			pkt->last->next = frag;
@@ -1056,15 +1070,16 @@ static void do_read_data(struct work_struct *work)
 			pkt->length += frag->length;
 			if (PACMARK_LAST(pm)) {
 				list_del(&pkt->list);
-				spin_unlock_irqrestore(&ept->incomplete_lock,
-						       flags);
+				spin_unlock(&ept->incomplete_lock);
 				goto packet_complete;
 			}
-			spin_unlock_irqrestore(&ept->incomplete_lock, flags);
+			spin_unlock(&ept->incomplete_lock);
+			spin_unlock_irqrestore(&local_endpoints_lock, flags);
 			goto done;
 		}
 	}
-	spin_unlock_irqrestore(&ept->incomplete_lock, flags);
+	spin_unlock(&ept->incomplete_lock);
+	spin_unlock_irqrestore(&local_endpoints_lock, flags);
 	/* This mid is new -- create a packet for it, and put it on
 	 * the incomplete list if this fragment is not a last fragment,
 	 * otherwise put it on the read queue.
@@ -1075,18 +1090,32 @@ static void do_read_data(struct work_struct *work)
 	memcpy(&pkt->hdr, &hdr, sizeof(hdr));
 	pkt->mid = mid;
 	pkt->length = frag->length;
+
+	spin_lock_irqsave(&local_endpoints_lock, flags);
+	ept = rpcrouter_lookup_local_endpoint(hdr.dst_cid);
+	if (!ept) {
+		spin_unlock_irqrestore(&local_endpoints_lock, flags);
+		DIAG("no local ept for cid %08x\n", hdr.dst_cid);
+		kfree(frag);
+		kfree(pkt);
+		goto done;
+	}
 	if (!PACMARK_LAST(pm)) {
+		spin_lock(&ept->incomplete_lock);
 		list_add_tail(&pkt->list, &ept->incomplete);
+		spin_unlock(&ept->incomplete_lock);
+		spin_unlock_irqrestore(&local_endpoints_lock, flags);
 		goto done;
 	}
 
 packet_complete:
-	spin_lock_irqsave(&ept->read_q_lock, flags);
+	spin_lock(&ept->read_q_lock);
 	D("%s: take read lock on ept %p\n", __func__, ept);
 	wake_lock(&ept->read_q_wake_lock);
 	list_add_tail(&pkt->list, &ept->read_q);
 	wake_up(&ept->wait_q);
-	spin_unlock_irqrestore(&ept->read_q_lock, flags);
+	spin_unlock(&ept->read_q_lock);
+	spin_unlock_irqrestore(&local_endpoints_lock, flags);
 done:
 
 	if (hdr.confirm_rx) {
@@ -1262,9 +1291,14 @@ static int msm_rpc_write_pkt(
 	if (r_ept)
 		spin_unlock_irqrestore(&r_ept->quota_lock, flags);
 
+	mutex_lock(&xprt_info_list_lock);
 	xprt_info = rpcrouter_get_xprt_info(hdr->dst_pid);
-
+	if (!xprt_info) {
+		mutex_unlock(&xprt_info_list_lock);
+		return -ENETRESET;
+	}
 	spin_lock_irqsave(&xprt_info->lock, flags);
+	mutex_unlock(&xprt_info_list_lock);
 	spin_lock(&ept->restart_lock);
 	if (ept->restart_state != RESTART_NORMAL) {
 		ept->restart_state &= ~RESTART_PEND_NTFY;
@@ -1279,7 +1313,14 @@ static int msm_rpc_write_pkt(
 		spin_unlock(&ept->restart_lock);
 		spin_unlock_irqrestore(&xprt_info->lock, flags);
 		msleep(250);
+		mutex_lock(&xprt_info_list_lock);
+		xprt_info = rpcrouter_get_xprt_info(hdr->dst_pid);
+		if (!xprt_info) {
+			mutex_unlock(&xprt_info_list_lock);
+			return -ENETRESET;
+		}
 		spin_lock_irqsave(&xprt_info->lock, flags);
+		mutex_unlock(&xprt_info_list_lock);
 		spin_lock(&ept->restart_lock);
 	}
 	if (ept->restart_state != RESTART_NORMAL) {
@@ -1455,6 +1496,17 @@ int msm_rpc_write(struct msm_rpc_endpoint *ept, void *buffer, int count)
 
 	if (rq->type == 0) {
 		/* RPC CALL */
+		
+		//SW2-5-1-MP-DbgCfgTool-00*[
+		if (debug_rpcmsg_enable)
+		{
+			printk (KERN_INFO "[RPC] LINUX to AMSS: prog = 0x%08x, proc = 0x%x, xid = 0x%x\n", 
+				be32_to_cpu(((struct rpc_request_hdr *)buffer)->prog), 
+				be32_to_cpu(((struct rpc_request_hdr *)buffer)->procedure),
+				be32_to_cpu(((struct rpc_request_hdr *)buffer)->xid));
+		}
+		//SW2-5-1-MP-DbgCfgTool-00*]
+		
 		if (count < (sizeof(uint32_t) * 6)) {
 			printk(KERN_ERR
 			       "rr_write: rejecting runt call packet\n");
@@ -1485,7 +1537,8 @@ int msm_rpc_write(struct msm_rpc_endpoint *ept, void *buffer, int count)
 		reply = get_pend_reply(ept, rq->xid);
 		if (!reply) {
 			printk(KERN_ERR
-			       "rr_write: rejecting, reply not found \n");
+			       "rr_write: rejecting, reply not found, xid = 0x%x\n",
+				be32_to_cpu(rq->xid));  //SW2-5-1-MP-DbgCfgTool-00*
 			return -EINVAL;
 		}
 		hdr.dst_pid = reply->pid;
@@ -2294,7 +2347,7 @@ static int __init rpcrouter_init(void)
 	int ret;
 
 	msm_rpc_connect_timeout_ms = 0;
-	smd_rpcrouter_debug_mask |= SMEM_LOG;
+	smd_rpcrouter_debug_mask |= (SMEM_LOG | R2R_MSG | RPC_MSG);
 	debugfs_init();
 
 	/* Initialize what we need to start processing */

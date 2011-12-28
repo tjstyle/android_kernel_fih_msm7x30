@@ -24,7 +24,7 @@
  * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE
  * OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN
  * IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
+ 
  */
 
 #ifndef DIAGFWD_H
@@ -44,6 +44,7 @@ int mask_request_validate(unsigned char mask_buf[]);
 int diagfwd_connect(void);
 int diagfwd_disconnect(void);
 #endif
+int read_efsfver(int efs_page, char *efs_buf); /* FIH, JiaHao, 2011/09/14 */
 extern int diag_debug_buf_idx;
 extern unsigned char diag_debug_buf[1024];
 

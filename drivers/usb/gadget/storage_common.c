@@ -233,6 +233,24 @@ struct interrupt_data {
 #define SC_WRITE_10			0x2a
 #define SC_WRITE_12			0xaa
 
+/* FIHTDC, Div2-SW2-BSP, Penho, UsbPorting { */
+#define SC_READ_NV              0xf0
+#define SC_SWITCH_STATUS        0xf1
+#define SC_SWITCH_PORT          0xf2
+#define SC_MODEM_STATUS         0xf4
+#define SC_SHOW_PORT            0xf5
+#define SC_MODEM_DISCONNECT     0xf6
+#define SC_MODEM_CONNECT        0xf7
+#define SC_DIAG_RUT             0xf8
+#define SC_READ_BATTERY         0xf9
+#define SC_READ_IMAGE           0xfa
+#define SC_ENABLE_ALL_PORT      0xfd
+#define SC_MASS_STORGE          0xfe
+#define SC_ENTER_DOWNLOADMODE   0xff
+#define SC_ENTER_FTMMODE        0xe0
+#define SC_SWITCH_ROOT          0xe1	//Div2-5-3-Peripheral-LL-ADB_ROOT-00+
+/* } FIHTDC, Div2-SW2-BSP, Penho, UsbPorting */
+
 /* SCSI Sense Key/Additional Sense Code/ASC Qualifier values */
 #define SS_NO_SENSE				0
 #define SS_COMMUNICATION_FAILURE		0x040800
@@ -269,6 +287,7 @@ struct fsg_lun {
 	unsigned int	prevent_medium_removal:1;
 	unsigned int	registered:1;
 	unsigned int	info_valid:1;
+	unsigned int	nofua:1;
 
 	u32		sense_data;
 	u32		sense_data_info;
@@ -694,6 +713,14 @@ static ssize_t fsg_show_ro(struct device *dev, struct device_attribute *attr,
 				  : curlun->initially_ro);
 }
 
+static ssize_t fsg_show_nofua(struct device *dev, struct device_attribute *attr,
+				char *buf)
+{
+	struct fsg_lun  *curlun = fsg_lun_from_dev(dev);
+
+	return sprintf(buf, "%u\n", curlun->nofua);
+}
+
 static ssize_t fsg_show_file(struct device *dev, struct device_attribute *attr,
 			     char *buf)
 {
@@ -746,6 +773,23 @@ static ssize_t fsg_store_ro(struct device *dev, struct device_attribute *attr,
 	}
 	up_read(filesem);
 	return rc;
+}
+
+static ssize_t fsg_store_nofua(struct device *dev,
+				struct device_attribute *attr,
+				const char *buf, size_t count)
+{
+	struct fsg_lun  *curlun = fsg_lun_from_dev(dev);
+
+	if (strict_strtoul(buf, 2, &fsg_nofua))
+		return -EINVAL;
+
+	/* Sync data when switching from async mode to sync */
+	if (!fsg_nofua && curlun->nofua)
+		fsg_lun_fsync_sub(curlun);
+	curlun->nofua = fsg_nofua;
+
+	return count;
 }
 
 static ssize_t fsg_store_file(struct device *dev, struct device_attribute *attr,

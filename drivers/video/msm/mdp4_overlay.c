@@ -220,8 +220,10 @@ void mdp4_overlay_dmap_cfg(struct msm_fb_data_type *mfd, int lcdc)
 
 	mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_ON, FALSE);
 
+#if 0 //!defined(CONFIG_FIH_CONFIG_GROUP)
 	if (lcdc)
 		dma2_cfg_reg |= DMA_PACK_ALIGN_MSB;
+#endif
 
 	/* dma2 config register */
 	MDP_OUTP(MDP_BASE + 0x90000, dma2_cfg_reg);
@@ -1169,6 +1171,8 @@ void mdp4_overlay_reg_flush(struct mdp4_overlay_pipe *pipe, int all)
 {
 	uint32 bits = 0;
 
+	wmb(); /* make sure registers updated */
+
 	if (pipe->mixer_num == MDP4_MIXER1)
 		bits |= 0x02;
 	else
@@ -1190,6 +1194,7 @@ void mdp4_overlay_reg_flush(struct mdp4_overlay_pipe *pipe, int all)
 
 	mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_ON, FALSE);
 	outpdw(MDP_BASE + 0x18000, bits);	/* MDP_OVERLAY_REG_FLUSH */
+	wmb();
 	mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_OFF, FALSE);
 }
 
@@ -1943,7 +1948,8 @@ int mdp4_overlay_unset(struct fb_info *info, int ndx)
 
 #ifdef CONFIG_MSM_BUS_SCALING
 	if (pipe->mixer_num == MDP4_MIXER0)
-		mdp_bus_scale_update_request(2);
+		if (mfd->panel_power_on)
+			mdp_bus_scale_update_request(2);
 #endif
 	return 0;
 }
@@ -1997,6 +2003,12 @@ int mdp4_overlay_play(struct fb_info *info, struct msmfb_overlay_data *req,
 
 	if (mfd == NULL)
 		return -ENODEV;
+	
+	/* FIH, Ming, QC_PATCH { */
+	/* no overlay set and play allow after suspended */
+	if (!mfd->panel_power_on) /* suspended */
+        return -EPERM;
+    /* } FIH, Ming, QC_PATCH */
 
 	pipe = mdp4_overlay_ndx2pipe(req->id);
 	if (pipe == NULL) {

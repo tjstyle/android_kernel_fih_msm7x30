@@ -87,6 +87,25 @@ static int input_defuzz_abs_event(int value, int old_val, int fuzz)
 	return value;
 }
 
+//Div2D5-OwenHuang-BSP4040_Sensors_Porting-00+{
+#if defined(CONFIG_NEW_YAMAHA_SENSORS)
+//determine if this input event is from sensors(orientation/geomagnetic/accelerometer/light/proximity..etc)
+static int is_sensor_input(const char *dev_name)
+{
+	if (strcmp(dev_name, "accelerometer") == 0 || strcmp(dev_name, "light") == 0 ||
+		strcmp(dev_name, "proximity") == 0 || strcmp(dev_name, "orientation") == 0 ||
+		strcmp(dev_name, "geomagnetic") == 0 || strcmp(dev_name, "geomagnetic_raw") == 0) //Div2D5-OwenHuang-FB0_Sensors-Porting_New_Sensors_Architecture-02*
+	{
+		return 1;
+	}
+	else
+	{
+		return 0;
+	}
+}
+#endif
+//Div2D5-OwenHuang-BSP4040_Sensors_Porting-00+}
+
 /*
  * Pass event first through all filters and then, if event has not been
  * filtered out, through all open handles. This function is called with
@@ -114,7 +133,16 @@ static void input_pass_event(struct input_dev *dev,
 			if (!handler->filter) {
 				if (filtered)
 					break;
-
+				
+			//Div2D5-OwenHuang-BSP4040_Sensors_Porting-00+{
+			#if defined(CONFIG_NEW_YAMAHA_SENSORS)
+				if (is_sensor_input(dev->name) && strcmp(handler->name, "cpufreq_ond") == 0)
+				{
+					//do nothing
+				}
+				else
+			#endif
+			//Div2D5-OwenHuang-BSP4040_Sensors_Porting-00+}
 				handler->event(handle, type, code, value);
 
 			} else if (handler->filter(handle, type, code, value))

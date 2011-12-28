@@ -293,12 +293,20 @@
 #include <linux/usb/ch9.h>
 #include <linux/usb/gadget.h>
 
+/* FIHTDC, Div2-SW2-BSP, Penho, SUT_DOWNLOAD { */
+#include <linux/reboot.h>
+/* } FIHTDC, Div2-SW2-BSP, Penho, SUT_DOWNLOAD */
+
 #include "gadget_chips.h"
 
 #ifdef CONFIG_USB_ANDROID_MASS_STORAGE
 #include <linux/usb/android_composite.h>
 #include <linux/platform_device.h>
 #endif
+
+static ulong fsg_nofua = 1;
+module_param(fsg_nofua, ulong, S_IRUGO);
+MODULE_PARM_DESC(fsg_nofua, "FUA Flag state in SCSI WRITE");
 
 #define FUNCTION_NAME		"usb_mass_storage"
 /*------------------------------------------------------------------------*/
@@ -307,6 +315,13 @@
 #define FSG_DRIVER_VERSION	"2009/09/11"
 
 static const char fsg_string_interface[] = "Mass Storage";
+
+
+/* FIHTDC, Div2-SW2-BSP, Penho, SUT_DOWNLOAD { */
+#ifdef CONFIG_FIH_FXX
+#define USBDBG(x ...) printk(KERN_INFO x)
+#endif	// CONFIG_FIH_FXX
+/* } FIHTDC, Div2-SW2-BSP, Penho, SUT_DOWNLOAD */
 
 
 #define FSG_NO_INTR_EP 1
@@ -396,6 +411,7 @@ struct fsg_config {
 		char ro;
 		char removable;
 		char cdrom;
+		char nofua;
 	} luns[FSG_MAX_LUNS];
 
 	const char		*lun_name_format;
@@ -889,7 +905,7 @@ static int do_write(struct fsg_common *common)
 			curlun->sense_data = SS_INVALID_FIELD_IN_CDB;
 			return -EINVAL;
 		}
-		if (common->cmnd[1] & 0x08) {	/* FUA */
+		if (!curlun->nofua && (common->cmnd[1] & 0x08)) {/* FUA */
 			spin_lock(&curlun->filp->f_lock);
 			curlun->filp->f_flags |= O_SYNC;
 			spin_unlock(&curlun->filp->f_lock);
@@ -1228,6 +1244,12 @@ static int do_inquiry(struct fsg_common *common, struct fsg_buffhd *bh)
 	buf[5] = 0;		/* No special options */
 	buf[6] = 0;
 	buf[7] = 0;
+/* FIHTDC, Div2-SW2-BSP, Penho, PCtool { */
+#ifdef CONFIG_FIH_FXX
+	if (common->lun == 1) sprintf(buf + 8, "Android SCSI CD-ROM V001");
+	else
+#endif	// CONFIG_FIH_FXX
+/* } FIHTDC, Div2-SW2-BSP, Penho, PCtool */
 	memcpy(buf + 8, common->inquiry_string, sizeof common->inquiry_string);
 	return 36;
 }
@@ -1408,7 +1430,7 @@ static int do_mode_sense(struct fsg_common *common, struct fsg_buffhd *bh)
 		memset(buf+2, 0, 10);	/* None of the fields are changeable */
 
 		if (!changeable_values) {
-			buf[2] = 0x00;	/* Write cache disable, */
+			buf[2] = 0x04;	/* Write cache enable, */
 					/* Read cache not disabled */
 					/* No cache retention priorities */
 			put_unaligned_be16(0xffff, &buf[4]);
@@ -1507,7 +1529,7 @@ static int do_prevent_allow(struct fsg_common *common)
 		return -EINVAL;
 	}
 
-	if (curlun->prevent_medium_removal && !prevent)
+	if (!curlun->nofua && curlun->prevent_medium_removal && !prevent)
 		fsg_lun_fsync_sub(curlun);
 	curlun->prevent_medium_removal = prevent;
 	return 0;
@@ -1936,6 +1958,13 @@ static int check_command(struct fsg_common *common, int cmnd_size,
 		/* INQUIRY and REQUEST SENSE commands are explicitly allowed
 		 * to use unsupported LUNs; all others may not. */
 		if (common->cmnd[0] != SC_INQUIRY &&
+/* FIHTDC, Div2-SW2-BSP, Penho, UsbPorting { */
+		    common->cmnd[0] != SC_MODEM_STATUS &&
+		    common->cmnd[0] != SC_MASS_STORGE &&
+		    common->cmnd[0] != SC_SWITCH_STATUS &&
+		    common->cmnd[0] != SC_READ_NV &&
+		    common->cmnd[0] != SC_READ_BATTERY &&
+/* } FIHTDC, Div2-SW2-BSP, Penho, UsbPorting */
 		    common->cmnd[0] != SC_REQUEST_SENSE) {
 			DBG(common, "unsupported LUN %d\n", common->lun);
 			return -EINVAL;
@@ -1946,6 +1975,13 @@ static int check_command(struct fsg_common *common, int cmnd_size,
 	 * REQUEST SENSE commands are allowed; anything else must fail. */
 	if (curlun && curlun->unit_attention_data != SS_NO_SENSE &&
 			common->cmnd[0] != SC_INQUIRY &&
+/* FIHTDC, Div2-SW2-BSP, Penho, UsbPorting { */
+		    common->cmnd[0] != SC_MODEM_STATUS &&
+		    common->cmnd[0] != SC_MASS_STORGE &&
+		    common->cmnd[0] != SC_SWITCH_STATUS &&
+		    common->cmnd[0] != SC_READ_NV &&
+		    common->cmnd[0] != SC_READ_BATTERY &&
+/* } FIHTDC, Div2-SW2-BSP, Penho, UsbPorting */
 			common->cmnd[0] != SC_REQUEST_SENSE) {
 		curlun->sense_data = curlun->unit_attention_data;
 		curlun->unit_attention_data = SS_NO_SENSE;
@@ -1953,6 +1989,11 @@ static int check_command(struct fsg_common *common, int cmnd_size,
 	}
 
 	/* Check that only command bytes listed in the mask are non-zero */
+/* FIHTDC, Div2-SW2-BSP, Penho, UsbPorting { */
+#ifdef CONFIG_FIH_FXX
+	if (common->lun == 0) {
+#endif	// CONFIG_FIH_FXX
+/* } FIHTDC, Div2-SW2-BSP, Penho, UsbPorting */
 	common->cmnd[1] &= 0x1f;			/* Mask away the LUN */
 	for (i = 1; i < cmnd_size; ++i) {
 		if (common->cmnd[i] && !(mask & (1 << i))) {
@@ -1961,17 +2002,173 @@ static int check_command(struct fsg_common *common, int cmnd_size,
 			return -EINVAL;
 		}
 	}
+/* FIHTDC, Div2-SW2-BSP, Penho, UsbPorting { */
+#ifdef CONFIG_FIH_FXX
+	}
+#endif	// CONFIG_FIH_FXX
+/* } FIHTDC, Div2-SW2-BSP, Penho, UsbPorting */
 
 	/* If the medium isn't mounted and the command needs to access
 	 * it, return an error. */
+/* FIHTDC, Div2-SW2-BSP, Penho, UsbPorting { */
+#ifdef CONFIG_FIH_FXX
+	if (common->lun == 0) {
+#endif	// CONFIG_FIH_FXX
+/* } FIHTDC, Div2-SW2-BSP, Penho, UsbPorting */
 	if (curlun && !fsg_lun_is_open(curlun) && needs_medium) {
 		curlun->sense_data = SS_MEDIUM_NOT_PRESENT;
 		return -EINVAL;
 	}
+/* FIHTDC, Div2-SW2-BSP, Penho, UsbPorting { */
+#ifdef CONFIG_FIH_FXX
+	}
+#endif	// CONFIG_FIH_FXX
+/* } FIHTDC, Div2-SW2-BSP, Penho, UsbPorting */
 
 	return 0;
 }
 
+/* FIHTDC, Div2-SW2-BSP, Penho, UsbPorting { */
+#ifdef CONFIG_FIH_FXX
+extern void usb_switch_pid(int);
+extern void scsi_set_adb_root(void);
+
+extern int fih_usb_full_func;		//Div2-5-3-Peripheral-LL-UsbCustomized-01+
+
+extern void switch_set_MassStorage_state(struct switch_dev *sdev, int state);	/* driver\switch\switch_class.c */
+extern bool storage_state;			/* drivers\mmc\core\core.c */
+static int do_mass_storage(struct fsg_common *fsg, struct fsg_buffhd *bh)
+{
+	char online[36]="1",offline[36]="0";
+	u8	*buf = (u8 *) bh->buf;
+
+	memset(buf, 0, 36);
+
+	if (storage_state ==true) {
+//		fsg->config = 2;											/* must implement */
+//		switch_set_MassStorage_state(&fsg->sdev, fsg->config);		/* must implement */
+		sprintf(buf , online);
+	}
+	else {
+		printk(KERN_WARNING "[%s]: The SD card didn't be inserted.\n", __func__);
+		sprintf(buf , offline);
+	}
+
+	return 36;
+}
+
+bool is_switch = false;
+static int do_switch_status(struct fsg_common *fsg, struct fsg_buffhd *bh)
+{
+	char online[36]="1",offline[36]="0";//,temp[]="1"; 	
+	u8	*buf = (u8 *) bh->buf;
+	
+	memset(buf, 0, 36);	
+	
+	if(is_switch == true){
+		sprintf(buf , online);
+	} else {
+		sprintf(buf , offline);
+	}
+	return 36;
+}
+
+static int do_switch_adb(struct fsg_common *common, struct fsg_buffhd *bh, int enable)
+{
+	char buffer[32];
+	char *argv[] = {buffer, "adbd", NULL};
+	int ret;
+
+	snprintf (buffer, sizeof(buffer), "/system/bin/%s", enable?"start":"stop");
+
+	memset (bh->buf, 0, common->data_size_from_cmnd);
+
+	ret = call_usermodehelper (argv[0], argv, NULL, UMH_NO_WAIT);
+	if (ret < 0) {
+		printk (KERN_ERR "%s call_usermodehelper return %d", __func__, ret);
+	}
+	return common->data_size_from_cmnd;
+}
+
+#include "mach/fih_msm_battery.h"
+static int do_read_battery(struct fsg_common *fsg, struct fsg_buffhd *bh)
+{
+    struct batt_info_interface* batt_info_if = get_batt_info_if();
+    int batt_capasity = batt_info_if->get_batt_capacity();
+    u8 *buf = (u8 *) bh->buf;
+
+    memset(buf, 0x0, 36);
+
+    buf[0] = batt_capasity;
+    USBDBG("batt = %d%%", batt_capasity);
+
+    return 36;
+}
+
+#include "../../../arch/arm/mach-msm/proc_comm.h"
+#define NV_FIH_VERSION_I        50030
+#define BUILD_ID_0              "/proc/fver"
+#define BUILD_ID_1              "/system/build_id"
+
+static int do_read_nv(struct fsg_common *fsg, struct fsg_buffhd *bh)
+{
+    struct file *gMD_filp = NULL;
+    u8 *buf = (u8 *) bh->buf;
+    char text[20];
+
+    int32_t smem_proc_comm_oem_cmd1 = PCOM_CUSTOMER_CMD1;
+    int32_t smem_proc_comm_oem_data1 = SMEM_PROC_COMM_OEM_NV_READ;
+    int32_t smem_proc_comm_oem_data2= NV_FIH_VERSION_I;
+    int32_t fih_version[32];
+    char ver_buf[128];
+    mm_segment_t oldfs;
+
+    memset(ver_buf, 0x0, sizeof(ver_buf));
+    if (msm_proc_comm_oem(smem_proc_comm_oem_cmd1, &smem_proc_comm_oem_data1, fih_version, &smem_proc_comm_oem_data2)==0)
+    {
+        memcpy(ver_buf, fih_version, sizeof(ver_buf));
+        USBDBG("%s : fih_version=%s\n", __func__, ver_buf);
+    }
+    oldfs = get_fs();
+    set_fs(KERNEL_DS);
+    gMD_filp = filp_open(BUILD_ID_0, O_RDONLY, 0);
+
+    if (!IS_ERR(gMD_filp))
+    {
+        USBDBG("%s : BUILD_ID_0 = %s\n", __func__, BUILD_ID_0);
+        gMD_filp->f_op->read(gMD_filp, text, sizeof(text), &gMD_filp->f_pos);
+        filp_close(gMD_filp, NULL);
+
+        USBDBG("%s : text = %s\n", __func__, text);
+        memcpy(ver_buf+1, &text[5], 1);
+        memcpy(ver_buf+2, &text[7], 3);
+        sprintf(buf, ver_buf);
+        USBDBG("%s : fih_version = %s\n", __func__, ver_buf);
+    }
+    else
+    {
+        gMD_filp = filp_open(BUILD_ID_1, O_RDONLY, 0);
+        if (!IS_ERR(gMD_filp))
+        {
+            USBDBG("%s : BUILD_ID_1 = %s \n", __func__, BUILD_ID_1);
+            gMD_filp->f_op->read(gMD_filp, text, sizeof(text), &gMD_filp->f_pos);
+            filp_close(gMD_filp, NULL);
+
+            USBDBG("%s : text = %s\n", __func__, text);
+            memcpy(ver_buf+1, &text[5], 1);
+            memcpy(ver_buf+2, &text[7], 3);
+            sprintf(buf, ver_buf);
+            USBDBG("%s : fih_version = %s\n", __func__, ver_buf);
+        }
+        else
+        {
+            USBDBG("%s : open build_id file fail\n", __func__);
+        }
+    }
+    return 128;
+}
+#endif	// CONFIG_FIH_FXX
+/* } FIHTDC, Div2-SW2-BSP, Penho, UsbPorting */
 
 static int do_scsi_command(struct fsg_common *common)
 {
@@ -2200,6 +2397,87 @@ static int do_scsi_command(struct fsg_common *common)
 		if (reply == 0)
 			reply = do_write(common);
 		break;
+
+/* FIHTDC, Div2-SW2-BSP, Penho, UsbPorting { */
+#ifdef CONFIG_FIH_FXX
+//	case SC_MASS_STORGE:		/* must implement */
+		if ((common->cmnd[1] == 'F') && (common->cmnd[2] == 'I') && (common->cmnd[3] == 'H')) {
+			common->data_size_from_cmnd = common->cmnd[4];
+			if ((reply = check_command(common, 6, DATA_DIR_TO_HOST, (1<<4), 0, "STORAGE")) == 0)
+				reply = do_mass_storage(common, bh);
+		}
+		break;
+
+	case SC_DIAG_RUT:
+		if ((common->cmnd[1] == 'F') && (common->cmnd[2] == 'I') && (common->cmnd[3] == 'H')) {
+			kernel_restart("recovery");
+		}
+		break;
+
+	case SC_SWITCH_STATUS:
+		common->data_size_from_cmnd = common->cmnd[4];
+		if ((reply = check_command(common, 6, DATA_DIR_TO_HOST, (1<<4), 0, "SWITCH STATUS")) == 0)
+			reply = do_switch_status(common, bh);
+		break;
+
+	case SC_SWITCH_PORT:
+		if ((common->cmnd[1] == 'F') && (common->cmnd[2] == 'I')) {
+			switch (common->cmnd[3]) {
+			case '0':
+			case '1':
+				reply = do_switch_adb(common, bh, common->cmnd[3] - '0');
+				break;
+			default:
+				reply = 0;
+				break;
+			}
+		}
+		break;
+
+	case SC_ENABLE_ALL_PORT:
+		if ((common->cmnd[1] == 'F') && (common->cmnd[2] == 'I') && (common->cmnd[3] == 'H')) {
+			usb_switch_pid(fih_usb_full_func);		//Div2-5-3-Peripheral-LL-UsbCustomized-01*
+		}
+		break;
+
+	case SC_READ_BATTERY:
+		common->data_size_from_cmnd = common->cmnd[4];
+		if ((reply = check_command(common, 6, DATA_DIR_TO_HOST, (1<<4), 0, "READ BATTERY")) == 0)
+			reply = do_read_battery(common, bh);
+		break;
+
+	case SC_READ_NV:
+		common->data_size_from_cmnd = common->cmnd[4];
+		if ((reply = check_command(common, 6, DATA_DIR_TO_HOST, (1<<4), 0, "READ NV")) == 0)
+			reply = do_read_nv(common, bh);
+		break;
+
+	case SC_ENTER_DOWNLOADMODE:
+		if ((common->cmnd[1] == 'F') && (common->cmnd[2] == 'I') && (common->cmnd[3] == 'H')) {
+			//Download_Enter = 1;
+			Restart_To_Download();
+		}
+		break;
+
+	case SC_ENTER_FTMMODE:
+		if ((common->cmnd[1] == 'E') && (common->cmnd[2] == 'F')) {
+			if (common->cmnd[3] == '0') {
+				// Set to enter ftm mode always
+				kernel_restart("switch");
+			} else if (common->cmnd[3] == '1') {
+				// Set to enter ftm mode just once
+				kernel_restart("ftmonce");			//Div2-5-3-Peripheral-LL-SCSI_FTM-00+
+			}
+		}
+		break;
+
+	case SC_SWITCH_ROOT:
+		if ((common->cmnd[1] == 'F') && (common->cmnd[2] == 'I') && (common->cmnd[3] == 'H'))
+			scsi_set_adb_root();
+		break;
+
+#endif	// CONFIG_FIH_FXX
+/* } FIHTDC, Div2-SW2-BSP, Penho, UsbPorting */
 
 	/* Some mandatory commands that we recognize but don't implement.
 	 * They don't mean much in this setting.  It's left as an exercise
@@ -2727,7 +3005,7 @@ static int fsg_main_thread(void *common_)
 /* Write permission is checked per LUN in store_*() functions. */
 static DEVICE_ATTR(ro, 0644, fsg_show_ro, fsg_store_ro);
 static DEVICE_ATTR(file, 0644, fsg_show_file, fsg_store_file);
-
+static DEVICE_ATTR(nofua, 0644, fsg_show_nofua, fsg_store_nofua);
 
 /****************************** FSG COMMON ******************************/
 
@@ -2809,6 +3087,7 @@ static struct fsg_common *fsg_common_init(struct fsg_common *common,
 		curlun->ro = lcfg->cdrom || lcfg->ro;
 		curlun->removable = lcfg->removable;
 		curlun->dev.release = fsg_lun_release;
+		curlun->nofua = lcfg->nofua;
 
 #ifdef CONFIG_USB_ANDROID_MASS_STORAGE
 		/* use "usb_mass_storage" platform device as parent */
@@ -2835,6 +3114,9 @@ static struct fsg_common *fsg_common_init(struct fsg_common *common,
 		if (rc)
 			goto error_luns;
 		rc = device_create_file(&curlun->dev, &dev_attr_file);
+		if (rc)
+			goto error_luns;
+		rc = device_create_file(&curlun->dev, &dev_attr_nofua);
 		if (rc)
 			goto error_luns;
 
@@ -2981,6 +3263,7 @@ static void fsg_common_release(struct kref *ref)
 
 		/* In error recovery common->nluns may be zero. */
 		for (; i; --i, ++lun) {
+			device_remove_file(&lun->dev, &dev_attr_nofua);
 			device_remove_file(&lun->dev, &dev_attr_ro);
 			device_remove_file(&lun->dev, &dev_attr_file);
 			fsg_lun_close(lun);
@@ -3258,8 +3541,17 @@ static int fsg_probe(struct platform_device *pdev)
 	if (nluns > FSG_MAX_LUNS)
 		nluns = FSG_MAX_LUNS;
 	fsg_cfg.nluns = nluns;
-	for (i = 0; i < nluns; i++)
+	for (i = 0; i < nluns; i++) {
 		fsg_cfg.luns[i].removable = 1;
+		fsg_cfg.luns[i].nofua = fsg_nofua;
+	}
+
+/* FIHTDC, Div2-SW2-BSP, Penho, PCtool { */
+#ifdef CONFIG_FIH_FXX
+	fsg_cfg.luns[0].cdrom = TYPE_DISK;
+	fsg_cfg.luns[1].cdrom = TYPE_CDROM;
+#endif	// CONFIG_FIH_FXX
+/* } FIHTDC, Div2-SW2-BSP, Penho, PCtool */
 
 	fsg_cfg.vendor_name = pdata->vendor;
 	fsg_cfg.product_name = pdata->product;

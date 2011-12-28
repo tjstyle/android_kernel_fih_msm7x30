@@ -37,6 +37,16 @@
 #include <mach/qdsp5v2/audio_acdb_def.h>
 #include <linux/slab.h>
 
+/* FIHTDC, Div2-SW2-BSP, Peter, Audio { */
+#include <mach/board.h>
+#include <mach/msm_smd.h>
+#include "../../../arch/arm/mach-msm/smd_private.h"
+#include "../../../arch/arm/mach-msm/proc_comm.h"
+#include <linux/gpio.h>
+#include <linux/delay.h>
+/* } FIHTDC, Div2-SW2-BSP, Peter, Audio */
+
+
 #define SMPS_AUDIO_PLAYBACK_ID	"AUPB"
 #define SMPS_AUDIO_RECORD_ID	"AURC"
 
@@ -44,6 +54,20 @@
 #define SNDDEV_ICODEC_MUL_FACTOR 3 /* Multi by 8 Shift by 3  */
 #define SNDDEV_ICODEC_CLK_RATE(freq) \
 	(((freq) * (SNDDEV_ICODEC_PCM_SZ)) << (SNDDEV_ICODEC_MUL_FACTOR))
+
+/* FIHTDC, Div2-SW2-BSP, Peter, Audio { */
+extern int SPK1_AMP;
+extern int SPK2_AMP;
+
+extern int HS_AMP;
+
+extern bool m_HsAmpOn;
+extern bool m_SpkAmpOn;
+#ifdef CONFIG_FIH_SFX_AUDIO
+static struct vreg *vreg_gp4; /*VREG_L10_V2P2*/
+static struct vreg *vreg_rf2;  /*VREG_S4_V2P2*/
+#endif
+/* } FIHTDC, Div2-SW2-BSP, Peter, Audio */
 
 #ifdef CONFIG_DEBUG_FS
 static struct adie_codec_action_unit debug_rx_actions[] =
@@ -511,6 +535,17 @@ static int snddev_icodec_close(struct msm_snddev_info *dev_info)
 
 	if (icodec->data->capability & SNDDEV_CAP_RX) {
 		mutex_lock(&drv->rx_lock);
+
+/* FIHTDC, Div2-SW2-BSP, Peter, Audio { */
+		gpio_set_value(HS_AMP, 0);
+		gpio_set_value(SPK1_AMP, 0); 
+#ifdef CONFIG_FIH_FBX_AUDIO
+		gpio_set_value(SPK2_AMP, 0);
+#endif // CONFIG_FIH_FBX_AUDIO
+		msleep(20);
+/* } FIHTDC, Div2-SW2-BSP, Peter, Audio */
+
+
 		if (!drv->rx_active) {
 			mutex_unlock(&drv->rx_lock);
 			rc = -EPERM;
@@ -533,6 +568,16 @@ static int snddev_icodec_close(struct msm_snddev_info *dev_info)
 		mutex_unlock(&drv->tx_lock);
 	}
 
+/* FIHTDC, Div2-SW2-BSP, Peter, Audio { */
+#ifdef CONFIG_FIH_SFX_AUDIO
+	if ((fih_get_product_id() == Product_SF6) && (fih_get_product_phase() == Product_PR1)) {
+		vreg_disable(vreg_rf2); /*VREG_S4_V2P2*/
+	} else {
+		vreg_disable(vreg_gp4); /*VREG_L10_V2P2*/ 
+	}
+#endif
+/* } FIHTDC, Div2-SW2-BSP, Peter, Audio */
+
 error:
 	return rc;
 }
@@ -548,6 +593,17 @@ static int snddev_icodec_open(struct msm_snddev_info *dev_info)
 		goto error;
 	}
 
+/* FIHTDC, Div2-SW2-BSP, Peter, Audio { */
+#ifdef CONFIG_FIH_SFX_AUDIO
+	if ((fih_get_product_id() == Product_SF6) && (fih_get_product_phase() == Product_PR1)) {
+		vreg_set_level(vreg_rf2, 2200); /*VREG_S4_V2P2*/
+		vreg_enable(vreg_rf2);
+	} else {
+		vreg_set_level(vreg_gp4, 2200); /*VREG_L10_V2P2*/
+		vreg_enable(vreg_gp4);
+	}
+#endif
+/* } FIHTDC, Div2-SW2-BSP, Peter, Audio */
 	icodec = dev_info->private_data;
 
 	if (icodec->data->capability & SNDDEV_CAP_RX) {
@@ -574,6 +630,33 @@ static int snddev_icodec_open(struct msm_snddev_info *dev_info)
 					goto error;
 				}
 		}
+
+/* FIHTDC, Div2-SW2-BSP, Peter, Audio { */
+#ifdef CONFIG_FIH_FBX_AUDIO
+		if (m_HsAmpOn){
+			gpio_set_value(HS_AMP, 1);
+			printk(KERN_ERR "GPIO%d:%d \n",HS_AMP,gpio_get_value(HS_AMP) );
+		}
+		if (m_SpkAmpOn){
+			gpio_set_value(SPK1_AMP, 1);
+			printk(KERN_ERR "GPIO%d:%d \n",SPK1_AMP,gpio_get_value(SPK1_AMP) );
+			gpio_set_value(SPK2_AMP, 1);
+			printk(KERN_ERR "GPIO%d:%d \n",SPK1_AMP,gpio_get_value(SPK2_AMP) );
+		}
+#endif // CONFIG_FIH_FBX_AUDIO
+
+#ifdef CONFIG_FIH_SFX_AUDIO
+		if (m_HsAmpOn){
+			msleep(65);
+			gpio_set_value(HS_AMP, 1);
+			printk(KERN_ERR "GPIO%d:%d \n",HS_AMP,gpio_get_value(HS_AMP) );
+		}
+		if (m_SpkAmpOn){
+			gpio_set_value(SPK1_AMP, 1);
+			printk(KERN_ERR "GPIO%d:%d \n",SPK1_AMP,gpio_get_value(SPK1_AMP) );
+		}
+#endif // CONFIG_FIH_FBX_AUDIO
+/* } FIHTDC, Div2-SW2-BSP, Peter, Audio */
 		mutex_unlock(&drv->rx_lock);
 	} else {
 		mutex_lock(&drv->tx_lock);
@@ -1060,6 +1143,16 @@ static int __init snddev_icodec_init(void)
 	s32 rc;
 	struct snddev_icodec_drv_state *icodec_drv = &snddev_icodec_drv;
 
+/* FIHTDC, Div2-SW2-BSP, Peter, Audio { */
+#ifdef CONFIG_FIH_SFX_AUDIO
+	if ((fih_get_product_id() == Product_SF6) && (fih_get_product_phase() == Product_PR1)) {
+		vreg_rf2 = vreg_get(NULL, "s4"); /*VREG_S4_V2P2*/
+	} else {
+		vreg_gp4 = vreg_get(NULL, "gp4"); /*VREG_L10_V2P2*/ 
+	}
+#endif
+/* } FIHTDC, Div2-SW2-BSP, Peter, Audio */
+
 	rc = platform_driver_register(&snddev_icodec_driver);
 	if (IS_ERR_VALUE(rc))
 		goto error_platform_driver;
@@ -1085,17 +1178,21 @@ static int __init snddev_icodec_init(void)
 	if (IS_ERR(icodec_drv->lpa_p_clk))
 		goto error_lpa_p_clk;
 
+/* FIHTDC, Div2-SW2-BSP, Peter, cts File System Permission Test { */
 #ifdef CONFIG_DEBUG_FS
 	debugfs_sdev_dent = debugfs_create_dir("snddev_icodec", 0);
 	if (debugfs_sdev_dent) {
 		debugfs_afelb = debugfs_create_file("afe_loopback",
-		S_IFREG | S_IWUGO, debugfs_sdev_dent,
+//		S_IFREG | S_IWUGO, debugfs_sdev_dent,
+		0220, debugfs_sdev_dent,
 		(void *) "afe_loopback", &snddev_icodec_debug_fops);
 		debugfs_adielb = debugfs_create_file("adie_loopback",
-		S_IFREG | S_IWUGO, debugfs_sdev_dent,
+//		S_IFREG | S_IWUGO, debugfs_sdev_dent,
+		0220, debugfs_sdev_dent,
 		(void *) "adie_loopback", &snddev_icodec_debug_fops);
 	}
 #endif
+/* FIHTDC, Div2-SW2-BSP, Peter, cts File System Permission Test } */
 	mutex_init(&icodec_drv->rx_lock);
 	mutex_init(&icodec_drv->tx_lock);
 	icodec_drv->rx_active = 0;

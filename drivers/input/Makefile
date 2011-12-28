@@ -27,3 +27,7 @@ obj-$(CONFIG_INPUT_APMPOWER)	+= apm-power.o
 obj-$(CONFIG_INPUT_KEYRESET)	+= keyreset.o
 
 obj-$(CONFIG_XEN_KBDDEV_FRONTEND)	+= xen-kbdfront.o
+
+#//Div2D5-OwenHuang-BSP4040_Sensors_Porting-00+{
+obj-$(CONFIG_NEW_YAMAHA_SENSORS) += sensors/
+#//Div2D5-OwenHuang-BSP4040_Sensors_Porting-00+}

@@ -51,6 +51,7 @@ static void ddl_sys_init_done_callback(struct ddl_context *ddl_context,
 	u32 fw_size)
 {
 	u32 vcd_status = VCD_S_SUCCESS;
+	u8 *fw_ver;
 
 	DDL_MSG_MED("ddl_sys_init_done_callback");
 	if (!DDLCOMMAND_STATE_IS(ddl_context, DDL_CMD_DMA_INIT)) {
@@ -59,6 +60,9 @@ static void ddl_sys_init_done_callback(struct ddl_context *ddl_context,
 		ddl_context->cmd_state = DDL_CMD_INVALID;
 		DDL_MSG_LOW("SYS_INIT_DONE");
 		vidc_1080p_get_fw_version(&ddl_context->fw_version);
+		fw_ver = (u8 *)&ddl_context->fw_version;
+		DDL_MSG_ERROR("fw_version %x:%x:20%x",
+			fw_ver[1]&0xFF, fw_ver[0]&0xFF, fw_ver[2]&0xFF);
 		if (ddl_context->fw_memory_size >= fw_size) {
 			ddl_context->device_state = DDL_DEVICE_INITED;
 			vcd_status = VCD_S_SUCCESS;
@@ -602,6 +606,7 @@ static u32 ddl_decoder_frame_run_callback(struct ddl_client_context *ddl)
 		if (rsl_chg) {
 			DDL_MSG_ERROR("DEC_RECONFIG_NOT_SUPPORTED");
 			ddl_client_fatal_cb(ddl);
+			ret_status = true;
 		} else {
 			if ((VCD_FRAME_FLAG_EOS &
 				ddl->input_frame.vcd_frm.flags)) {
@@ -1023,16 +1028,25 @@ static u32 ddl_decoder_output_done_callback(
 		decoder->codec.codec <= VCD_CODEC_XVID)) {
 		vidc_sm_get_displayed_picture_frame(&ddl->shared_mem
 		[ddl->command_channel], &disp_pict);
-		if (!disp_pict)
-			output_vcd_frm->frame = VCD_FRAME_NOTCODED;
-		if (output_vcd_frm->frame == VCD_FRAME_NOTCODED) {
-			vidc_sm_get_available_luma_dpb_address(
-				&ddl->shared_mem[ddl->command_channel],
-				&free_luma_dpb);
-			if (free_luma_dpb)
-				output_vcd_frm->physical =
-					(u8 *)(free_luma_dpb << 11);
+		if (decoder->output_order == VCD_DEC_ORDER_DISPLAY) {
+			if (!disp_pict) {
+				output_vcd_frm->frame = VCD_FRAME_NOTCODED;
+				vidc_sm_get_available_luma_dpb_address(
+					&ddl->shared_mem[ddl->command_channel],
+					&free_luma_dpb);
+			}
+		} else {
+			if (dec_disp_info->input_frame ==
+				VIDC_1080P_DECODE_FRAMETYPE_NOT_CODED) {
+				output_vcd_frm->frame = VCD_FRAME_NOTCODED;
+			vidc_sm_get_available_luma_dpb_dec_order_address(
+					&ddl->shared_mem[ddl->command_channel],
+					&free_luma_dpb);
+			}
 		}
+		if (free_luma_dpb)
+			output_vcd_frm->physical =
+				(u8 *)(free_luma_dpb << 11);
 	}
 	vcd_status = ddl_decoder_dpb_transact(decoder, output_frame,
 			DDL_DPB_OP_MARK_BUSY);

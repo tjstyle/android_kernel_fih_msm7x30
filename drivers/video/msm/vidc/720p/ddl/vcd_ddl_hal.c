@@ -27,6 +27,8 @@
 #define DBG(x...)
 #endif
 
+#define DBG_INFO(x...) pr_info(x)
+
 void ddl_core_init(struct ddl_context *ddl_context)
 {
 	char *psz_version;
@@ -53,6 +55,9 @@ void ddl_core_init(struct ddl_context *ddl_context)
 	intr_mask |= VIDC_720P_INTR_FRAME_DONE;
 
 	vidc_720p_do_sw_reset();
+
+	DBG_INFO("Loading CONTROL_FW of FW_SIZE %u\n",
+		fw_details.fw_size*4);
 
 	vidc_720p_init(&psz_version,
 			fw_details.fw_size,
@@ -163,6 +168,9 @@ void ddl_channel_set(struct ddl_client_context *ddl)
 
 	ddl_move_command_state(ddl->ddl_context, DDL_CMD_CHANNEL_SET);
 	ddl_move_client_state(ddl, DDL_CLIENT_WAIT_FOR_CHDONE);
+
+	DBG_INFO("Loading firmware for CODEC:%u of FW_SIZE:%u\n",
+		fw_details.codec, fw_details.fw_size*4);
 
 	vidc_720p_set_channel(ddl->channel_id,
 			       enc_dec_sel,
@@ -824,8 +832,12 @@ u32 ddl_decode_set_buffers(struct ddl_client_context *ddl)
 	}
 	decoder->ref_buffer.align_physical_addr = NULL;
 	if (ref_buf_no) {
-		size_t sz, align_bytes;
+		size_t sz, align_bytes, y_sz, frm_sz;
+		u32 i = 0;
 		sz = decoder->dp_buf.dec_pic_buffers[0].vcd_frm.alloc_len;
+		frm_sz = sz;
+		y_sz = decoder->client_frame_size.height *
+				decoder->client_frame_size.width;
 		sz *= ref_buf_no;
 		align_bytes = decoder->client_output_buf_req.align;
 		if (decoder->ref_buffer.virtual_base_addr)
@@ -837,6 +849,11 @@ u32 ddl_decode_set_buffers(struct ddl_client_context *ddl)
 			    ("Dec_set_buf:mpeg_ref_buf_alloc_failed");
 			return VCD_ERR_ALLOC_FAIL;
 		}
+		memset((u8 *)decoder->ref_buffer.virtual_base_addr,
+			0x80, sz);
+		for (i = 0; i < ref_buf_no; i++)
+			memset((u8 *)decoder->ref_buffer.align_virtual_addr +
+				i*frm_sz, 0x10, y_sz);
 	}
 	ddl_decode_set_metadata_output(decoder);
 	ddl_decoder_dpb_transact(decoder, NULL, DDL_DPB_OP_INIT);

@@ -1021,8 +1021,27 @@ int update_console_cmdline(char *name, int idx, char *name_new, int idx_new, cha
 	return -1;
 }
 
+//SW2-5-1-MP-DbgCfgTool-00*[
+#ifdef CONFIG_FIH_BUILDTYPE_DEBUG
+int console_suspend_enabled = 0;
+#else
 int console_suspend_enabled = 1;
+#endif
+//SW2-5-1-MP-DbgCfgTool-00*]
 EXPORT_SYMBOL(console_suspend_enabled);
+
+module_param_named(console_suspend, console_suspend_enabled, bool, S_IRUGO | S_IWUSR | S_IWGRP); //SW2-5-1-MP-DbgCfgTool-00+
+
+/* FIHTDC, Div2-SW2-BSP, Penho, SKIP_SR_UARTMSG { */
+#ifdef CONFIG_FIH_SUSPEND_RESUME_LOG
+extern int g_suspend_success;
+extern int g_fih_trace_pcclk;
+int g_skip_sr_uartmsg = 1;
+struct console * g_msmuartcon = NULL;
+
+module_param_named(skip_sr_uartmsg, g_skip_sr_uartmsg, bool, S_IRUGO | S_IWUSR | S_IWGRP);
+#endif	// CONFIG_FIH_SUSPEND_RESUME_LOG
+/* } FIHTDC, Div2-SW2-BSP, Penho, SKIP_SR_UARTMSG */
 
 static int __init console_suspend_disable(char *str)
 {
@@ -1052,6 +1071,26 @@ void resume_console(void)
 		return;
 	down(&console_sem);
 	console_suspended = 0;
+/* FIHTDC, Div2-SW2-BSP, Penho, SKIP_SR_UARTMSG { */
+#ifdef CONFIG_FIH_SUSPEND_RESUME_LOG
+	if (g_skip_sr_uartmsg && g_msmuartcon && g_suspend_success && (g_fih_trace_pcclk < 0)) {
+		char buf[] = "\n === skip suspend resume message ====\n\n";
+		short con_flags = g_msmuartcon->flags;
+		g_msmuartcon->flags &= ~(CON_ENABLED);
+		release_console_sem();
+		if ((g_msmuartcon->flags = con_flags) & CON_ENABLED) {
+			unsigned long flags;
+			spin_lock_irqsave(&logbuf_lock, flags);
+			spin_unlock(&logbuf_lock);
+			stop_critical_timings();	/* don't trace print latency */
+			g_msmuartcon->write(g_msmuartcon, buf, sizeof(buf));
+			start_critical_timings();
+			local_irq_restore(flags);
+		}
+	}
+	else
+#endif	// CONFIG_FIH_SUSPEND_RESUME_LOG
+/* } FIHTDC, Div2-SW2-BSP, Penho, SKIP_SR_UARTMSG */
 	release_console_sem();
 }
 
@@ -1371,6 +1410,12 @@ void register_console(struct console *newcon)
 		newcon->next = console_drivers->next;
 		console_drivers->next = newcon;
 	}
+/* FIHTDC, Div2-SW2-BSP, Penho, SKIP_SR_UARTMSG { */
+#ifdef CONFIG_FIH_SUSPEND_RESUME_LOG
+	if (strcmp(newcon->name, "ttyMSM") == 0)
+		g_msmuartcon = newcon;
+#endif	// CONFIG_FIH_SUSPEND_RESUME_LOG
+/* } FIHTDC, Div2-SW2-BSP, Penho, SKIP_SR_UARTMSG */
 	if (newcon->flags & CON_PRINTBUFFER) {
 		/*
 		 * release_console_sem() will print out the buffered messages
@@ -1437,6 +1482,13 @@ int unregister_console(struct console *console)
 	 */
 	if (console_drivers != NULL && console->flags & CON_CONSDEV)
 		console_drivers->flags |= CON_CONSDEV;
+
+/* FIHTDC, Div2-SW2-BSP, Penho, SKIP_SR_UARTMSG { */
+#ifdef CONFIG_FIH_SUSPEND_RESUME_LOG
+	if (console == g_msmuartcon)
+		g_msmuartcon = NULL;
+#endif	// CONFIG_FIH_SUSPEND_RESUME_LOG
+/* } FIHTDC, Div2-SW2-BSP, Penho, SKIP_SR_UARTMSG */
 
 	release_console_sem();
 	return res;

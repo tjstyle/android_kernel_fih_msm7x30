@@ -53,6 +53,11 @@
 #include <linux/platform_device.h>
 #include <linux/workqueue.h>
 #include <linux/slab.h>
+#include <linux/gpio.h>
+#include <linux/gps_fm_lna.h>
+
+#define TAVARUA_DEFAULT_TH  -83
+
 /*
 regional parameters for radio device
 */
@@ -147,6 +152,47 @@ static int tavarua_request_irq(struct tavarua_device *radio);
 static void start_pending_xfr(struct tavarua_device *radio);
 /* work function */
 static void read_int_stat(struct work_struct *work);
+
+#define GPS_FM_LNA_2V8_GPIO   79
+
+int enable_gps_fm_lna(int bEnable)
+{
+    static int      gps_fm_lna_refcnt = 0;
+    uint32_t        irqcfg;
+    int             rc;
+
+    if (bEnable)
+    {
+        if (gps_fm_lna_refcnt==0)
+        {
+            irqcfg = GPIO_CFG(GPS_FM_LNA_2V8_GPIO, 0, GPIO_CFG_OUTPUT, GPIO_CFG_NO_PULL,GPIO_CFG_2MA);
+            rc = gpio_tlmm_config(irqcfg, GPIO_CFG_ENABLE);
+            if (rc) 
+            {
+                printk(KERN_ERR "%s: gpio_tlmm_config(%#x)=%d\n", __func__, irqcfg, rc);
+                rc = -EIO;
+                return  -1;
+            }
+            gpio_set_value(GPS_FM_LNA_2V8_GPIO,1);
+        }
+
+        if (gps_fm_lna_refcnt<INT_MAX)
+        {
+            gps_fm_lna_refcnt++;  
+        }
+    }
+    else
+    {
+        if (!gps_fm_lna_refcnt)
+            return 0;
+
+        if (gps_fm_lna_refcnt==1)
+            gpio_set_value(GPS_FM_LNA_2V8_GPIO,0);
+
+        gps_fm_lna_refcnt--;
+    }
+    return gps_fm_lna_refcnt;
+}
 
 static int is_bahama(void)
 {
@@ -2377,6 +2423,15 @@ static int tavarua_vidioc_s_ctrl(struct file *file, void *priv,
 					FMDERR("Error in tavarua_set_audio_path"
 						" %d\n", retval);
 				}
+
+                //@fihtdc, set default threshold
+                if(sync_read_xfr(radio, RX_CONFIG, xfr_buf)) {
+                    xfr_buf[0] = (unsigned char)TAVARUA_DEFAULT_TH;
+                    xfr_buf[1] = (unsigned char)TAVARUA_DEFAULT_TH;
+                    xfr_buf[4] = 0x01;
+                    sync_write_xfr(radio, RX_CONFIG, xfr_buf);
+                }
+
 			 /* Enabling 'SoftMute' and 'SignalBlending' features */
 			value = (radio->registers[IOCTRL] |
 				    IOC_SFT_MUTE | IOC_SIG_BLND);
@@ -2757,6 +2812,9 @@ static int tavarua_vidioc_dqbuf(struct file *file, void *priv,
 	struct kfifo *data_fifo;
 	unsigned char *buf = (unsigned char *)buffer->m.userptr;
 	unsigned int len = buffer->length;
+    unsigned int nonecopy=0;
+    char *tbuf;
+
 	FMDBG("%s: requesting buffer %d\n", __func__, buf_type);
 	/* check if we can access the user buffer */
 	if (!access_ok(VERIFY_WRITE, buf, len))
@@ -2773,8 +2831,26 @@ static int tavarua_vidioc_dqbuf(struct file *file, void *priv,
 		FMDERR("invalid buffer type\n");
 		return -EINVAL;
 	}
-	buffer->bytesused = kfifo_out_locked(data_fifo, buf, len, 
+    /* +++ AlbertYCFang, 2011.07.21 +++ */
+	/*buffer->bytesused = kfifo_out_locked(data_fifo, buf, len, 
+					&radio->buf_lock[buf_type]);*/
+    tbuf = kzalloc(len, GFP_KERNEL);
+    if (!tbuf)
+    {
+        FMDBG("**%s kzalloc fail!", __func__);
+        return -EFAULT;
+    }
+
+	buffer->bytesused = kfifo_out_locked(data_fifo, tbuf, len, 
 					&radio->buf_lock[buf_type]);
+    nonecopy = copy_to_user(buf, tbuf, buffer->bytesused);
+
+    if (nonecopy>0)
+    {
+        FMDBG("**Bytes that could not be copied = %d", nonecopy);
+    }
+    kfree(tbuf);
+    /* --- AlbertYCFang, 2011.07.21 --- */
 
 	return 0;
 }

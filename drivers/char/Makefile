@@ -118,6 +118,17 @@ js-rtc-y = rtc.o
 obj-$(CONFIG_MSM_ROTATOR)	+= msm_rotator.o
 obj-$(CONFIG_MMC_GENERIC_CSDIO)	+= csdio.o
 
+#---------------------------------------------
+# Provide a char type driver of smd for FTM to communicate with modem.
+# Added by Lo, Chien Chung (Paul Lo). 2009/06/16
+obj-$(CONFIG_FTM_SMD) += ftm_smd/
+#--------------------------------------------
+
+
+
+# Added by CHHsieh, porting from 2030
+obj-y  += ftmgpio.o
+
 # Files generated that shall be removed upon make clean
 clean-files := consolemap_deftbl.c defkeymap.c
 

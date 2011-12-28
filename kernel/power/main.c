@@ -245,6 +245,38 @@ power_attr(wake_lock);
 power_attr(wake_unlock);
 #endif
 
+/* FIHTDC, Div2-SW2-BSP, Penho, SuspendLog { */
+#ifdef	CONFIG_FIH_SUSPEND_RESUME_LOG
+extern struct task_struct *gts_suspend;
+
+static ssize_t swq_stack_show(struct kobject *kobj, struct kobj_attribute *attr,
+			     char *buf)
+{
+	if (gts_suspend) {
+		printk(KERN_INFO "[PM] suspend call stack dump ...\n");
+		sched_show_task(gts_suspend);
+		printk(KERN_INFO "[PM] ===========================================================================\n");
+		return sprintf(buf, "the \"suspend\" call stack dump to alog.\n");
+	}
+	return sprintf(buf, "\"suspend\" not in running.\n");
+}
+
+static ssize_t
+swq_stack_store(struct kobject *kobj, struct kobj_attribute *attr,
+	       const char *buf, size_t n)
+{
+	int val;
+
+	if (sscanf(buf, "%d", &val) == 1) {
+		return n;
+	}
+	return -EINVAL;
+}
+
+power_attr(swq_stack);
+#endif	// CONFIG_FIH_SUSPEND_RESUME_LOG
+/* } FIHTDC, Div2-SW2-BSP, Penho, SuspendLog */
+
 static struct attribute * g[] = {
 	&state_attr.attr,
 #ifdef CONFIG_PM_TRACE
@@ -260,6 +292,11 @@ static struct attribute * g[] = {
 	&wake_unlock_attr.attr,
 #endif
 #endif
+/* FIHTDC, Div2-SW2-BSP, Penho, SuspendLog { */
+#ifdef CONFIG_FIH_SUSPEND_RESUME_LOG
+	&swq_stack_attr.attr,
+#endif	// CONFIG_FIH_SUSPEND_RESUME_LOG
+/* } FIHTDC, Div2-SW2-BSP, Penho, SuspendLog */
 	NULL,
 };
 

@@ -29,6 +29,8 @@
 *  SPARSEMEM and a 3G/1G VM split.
 */
 
+/*Div2-SW2-BSP,JOE HSU,Setting Memory model SPARSEMEM and enable CS1*/
+#if 0
 #if defined(CONFIG_ARCH_MSM7X30)
 
 #define EBI0_PHYS_OFFSET PHYS_OFFSET
@@ -52,6 +54,7 @@
 
 #endif
 
+#endif
 #endif
 
 #define HAS_ARCH_IO_REMAP_PFN_RANGE

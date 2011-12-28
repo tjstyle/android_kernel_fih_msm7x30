@@ -61,4 +61,10 @@ struct usb_diag_platform_data {
 	int (*update_pid_and_serial_num)(uint32_t, const char *);
 };
 
+//SW2-5-1-MP-DbgCfgTool-00+[
+#ifdef CONFIG_FIH_EFS2SD
+int diag_usb_configure(void);
+#endif
+//SW2-5-1-MP-DbgCfgTool-00+]
+
 #endif /* _DRIVERS_USB_DIAG_H_ */

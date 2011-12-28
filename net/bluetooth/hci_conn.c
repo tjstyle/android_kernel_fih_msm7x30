@@ -237,6 +237,9 @@ struct hci_conn *hci_conn_add(struct hci_dev *hdev, int type,
 
 	conn->power_save = 1;
 	conn->disc_timeout = HCI_DISCONN_TIMEOUT;
+	//Div2-SW6-BT_SNIFF++{
+	conn->force_active_mode = 0;
+	//Div2-SW6-BT_SNIFF++}
 
 	switch (type) {
 	case ACL_LINK:
@@ -540,8 +543,17 @@ void hci_conn_enter_active_mode(struct hci_conn *conn)
 	if (test_bit(HCI_RAW, &hdev->flags))
 		return;
 
-	if (conn->mode != HCI_CM_SNIFF /* || !conn->power_save */)
+//Div2-SW6-BT_SNIFF--{
+//	if (conn->mode != HCI_CM_SNIFF || !conn->power_save)
+//Div2-SW6-BT_SNIFF--}
+//Div2-SW6-BT_SNIFF++{
+	if (conn->mode != HCI_CM_SNIFF)
 		goto timer;
+
+	if (conn->power_save && !conn->force_active_mode)
+		goto timer;
+				
+//Div2-SW6-BT_SNIFF++}
 
 	if (!test_and_set_bit(HCI_CONN_MODE_CHANGE_PEND, &conn->pend)) {
 		struct hci_cp_exit_sniff_mode cp;

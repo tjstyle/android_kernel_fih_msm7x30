@@ -481,8 +481,27 @@ struct msm_snapshot_pp_status {
 #define CFG_GET_PICT_P_PL		25
 #define CFG_GET_AF_MAX_STEPS		26
 #define CFG_GET_PICT_MAX_EXP_LC		27
-#define CFG_SEND_WB_INFO    28
-#define CFG_MAX 			29
+#define CFG_SEND_WB_INFO	28
+#define CFG_SET_LEDMOD	29
+#define CFG_SET_EXPOSUREMOD	30
+#define CFG_SET_SATURATION	31
+#define CFG_SET_SHARPNESS	32
+#define CFG_SET_HUE			33
+#define CFG_SET_GAMMA		34
+#define CFG_SET_AUTOEXPOSURE	35
+#define CFG_SET_AUTOFOCUS		36
+#define CFG_SET_METERINGMOD		37
+#define CFG_SET_SCENEMOD	38
+#define CFG_SET_FOCUSREC	39
+#define CFG_STROBE_FLASH	41
+#define CFG_SET_ISO			42
+#define CFG_SET_CAF			43
+#define CFG_SET_touchAEC	44
+#define CFG_SET_AFMODE		45
+#define CFG_SET_DIS			46
+#define CFG_GET_AFSTATE		47
+#define CFG_GET_AFRESULT	48 // FS,20111116
+#define CFG_MAX		49
 
 #define MOVE_NEAR	0
 #define MOVE_FAR	1
@@ -491,6 +510,8 @@ struct msm_snapshot_pp_status {
 #define SENSOR_SNAPSHOT_MODE		1
 #define SENSOR_RAW_SNAPSHOT_MODE	2
 #define SENSOR_VIDEO_120FPS_MODE	3
+#define SENSOR_RESET_MODE	4
+#define SENSOR_MIRROR_MODE	5
 
 #define SENSOR_QTR_SIZE			0
 #define SENSOR_FULL_SIZE		1
@@ -506,7 +527,106 @@ struct msm_snapshot_pp_status {
 #define CAMERA_EFFECT_WHITEBOARD	6
 #define CAMERA_EFFECT_BLACKBOARD	7
 #define CAMERA_EFFECT_AQUA		8
-#define CAMERA_EFFECT_MAX		9
+#define CAMERA_EFFECT_BLUISH		9
+#define CAMERA_EFFECT_REDDISH		10
+#define CAMERA_EFFECT_GREENISH		11
+#define CAMERA_EFFECT_COLORBAR		12
+#define CAMERA_EFFECT_MAX		13
+
+
+#define CAMERA_WB_MIN_MINUS_1		0
+#define CAMERA_WB_AUTO			1
+#define CAMERA_WB_CUSTOM		2
+#define CAMERA_WB_INCANDESCENT		3
+#define CAMERA_WB_FLUORESCENT		4
+#define CAMERA_WB_DAYLIGHT		5
+#define CAMERA_WB_CLOUDY_DAYLIGHT	6
+#define CAMERA_WB_TWILIGHT		7
+#define CAMERA_WB_SHADE			8
+#define CAMERA_WB_MAX_PLUS_1		9
+
+#define CAMERA_BRIGHTNESS_MIN		0
+#define CAMERA_BRIGHTNESS_0		0
+#define CAMERA_BRIGHTNESS_1		1
+#define CAMERA_BRIGHTNESS_2		2
+#define CAMERA_BRIGHTNESS_3		3
+#define CAMERA_BRIGHTNESS_4		4
+#define CAMERA_BRIGHTNESS_5		5
+#define CAMERA_BRIGHTNESS_DEFAULT	5
+#define CAMERA_BRIGHTNESS_6		6
+#define CAMERA_BRIGHTNESS_7		7
+#define CAMERA_BRIGHTNESS_8		8
+#define CAMERA_BRIGHTNESS_9		9
+#define CAMERA_BRIGHTNESS_10		10
+#define CAMERA_BRIGHTNESS_MAX		10
+
+#define CAMERA_ANTIBANDING_OFF		0
+#define CAMERA_ANTIBANDING_60HZ		1
+#define CAMERA_ANTIBANDING_50HZ		2
+#define CAMERA_ANTIBANDING_AUTO		3
+#define CAMERA_MAX_ANTIBANDING		4
+
+#define LED_MODE_OFF 	0
+#define LED_MODE_AUTO 	1
+#define LED_MODE_ON 	2
+#define LED_MODE_TORCH 	3
+
+
+#define CAMERA_AEC_FRAME_AVERAGE		0
+#define CAMERA_AEC_CENTER_WEIGHTED		1
+#define CAMERA_AEC_SPOT_METERING		2
+#define CAMERA_AEC_MAX_MODES			3
+
+#define CAMERA_SATURATION_MINUS2		0
+#define CAMERA_SATURATION_MINUS1		1
+#define CAMERA_SATURATION_ZERO			2
+#define CAMERA_SATURATION_POSITIVE1		3
+#define CAMERA_SATURATION_POSITIVE2		4
+
+#define CAMERA_SHARPNESS_MINUS2		0
+#define CAMERA_SHARPNESS_MINUS1		1
+#define CAMERA_SHARPNESS_ZERO		2
+#define CAMERA_SHARPNESS_POSITIVE1	3
+#define CAMERA_SHARPNESS_POSITIVE2	4
+
+#define CAMERA_CONTRAST_MINUS2		0
+#define CAMERA_CONTRAST_MINUS1		1
+#define CAMERA_CONTRAST_ZERO			2
+#define CAMERA_CONTRAST_POSITIVE1	3
+#define CAMERA_CONTRAST_POSITIVE2	4
+
+#define CAMERA_SCENE_MODE_AUTO		0
+#define CAMERA_SCENE_MODE_LANDSCAPE	1
+#define CAMERA_SCENE_MODE_PORTRAIT	2
+#define CAMERA_SCENE_MODE_NIGHT		3
+#define CAMERA_SCENE_MODE_NIGHTPORTRAIT		4
+#define CAMERA_SCENE_MODE_SUNSET		5
+
+#define CAMERA_BESTSHOT_OFF		0
+#define CAMERA_BESTSHOT_LANDSCAPE	1
+#define CAMERA_BESTSHOT_SNOW		2
+#define CAMERA_BESTSHOT_BEACH		3
+#define CAMERA_BESTSHOT_SUNSET		4
+#define CAMERA_BESTSHOT_NIGHT		5
+#define CAMERA_BESTSHOT_PORTRAIT	6
+#define CAMERA_BESTSHOT_BACKLIGHT	7
+#define CAMERA_BESTSHOT_SPORTS		8
+#define CAMERA_BESTSHOT_ANTISHAKE	9
+#define CAMERA_BESTSHOT_FLOWERS		10
+#define CAMERA_BESTSHOT_CANDLELIGHT	11
+#define CAMERA_BESTSHOT_FIREWORKS	12
+#define CAMERA_BESTSHOT_PARTY		13
+#define CAMERA_BESTSHOT_NIGHT_PORTRAIT	14
+#define CAMERA_BESTSHOT_THEATRE		15
+#define CAMERA_BESTSHOT_ACTION		16
+
+#define FPS_MODE_AUTO	0
+#define FPS_MODE_FIXED	1
+
+#define AF_MODE_UNCHANGED	-1
+#define AF_MODE_NORMAL	0
+#define AF_MODE_MACRO	1
+#define AF_MODE_AUTO	2
 
 struct sensor_pict_fps {
 	uint16_t prevfps;
@@ -533,6 +653,34 @@ struct wb_info_cfg {
 	uint16_t green_gain;
 	uint16_t blue_gain;
 };
+
+struct touchAEC{
+	int enable;
+	uint32_t AEC_X;
+	uint32_t AEC_Y;
+};
+
+struct camera_focus_rectangle{
+	/* Focus Window dimensions */
+	int16_t x_upper_left;
+	int16_t y_upper_left;
+	int16_t width; 
+	int16_t height;
+};
+
+/* Enum Type for different ISO Mode supported */
+typedef enum
+{
+	CAMERA_ISO_ISO_AUTO = 0,
+	CAMERA_ISO_ISO_DEBLUR,
+	CAMERA_ISO_ISO_100,
+	CAMERA_ISO_ISO_200,
+	CAMERA_ISO_ISO_400,
+	CAMERA_ISO_ISO_800,
+	CAMERA_ISO_ISO_1600,
+	CAMERA_ISO_ISO_MAX
+} camera_iso_mode;
+
 struct sensor_cfg_data {
 	int cfgtype;
 	int mode;
@@ -541,6 +689,26 @@ struct sensor_cfg_data {
 
 	union {
 		int8_t effect;
+		int8_t wb;
+		int8_t antibanding;
+		int8_t brightness;
+		int8_t ledmod;
+		int8_t exposuremod;
+		int8_t saturation;
+		int8_t sharpness;
+		int8_t contrast;
+		int8_t hue;
+		int8_t gamma;
+		int8_t autoexposure;
+		int8_t autofocus;
+		int8_t meteringmod;
+		int8_t scenemod;
+		int8_t CAF;
+		int8_t afmode;
+		int8_t dis;
+		struct touchAEC AECIndex;
+		struct camera_focus_rectangle focusrec;
+		camera_iso_mode iso;
 		uint8_t lens_shading;
 		uint16_t prevl_pf;
 		uint16_t prevp_pl;
@@ -571,12 +739,36 @@ struct strobe_flash_ctrl_data {
 	enum strobe_flash_ctrl_type type;
 	int charge_en;
 };
+struct fih_parameters_data {
+	uint32_t autoexposure;
+	uint32_t effects;
+	uint32_t wb;
+	uint32_t antibanding;
+	uint32_t flash;
+	uint32_t focus;
+	uint32_t ISO;
+	uint32_t lensshade;
+	uint32_t scenemode;
+	uint32_t continuous_af;
+	uint32_t touchafaec;
+	uint32_t frame_rate_modes;
+	int8_t  max_brightness;
+	int8_t  max_contrast;
+	int8_t  max_saturation;
+	int8_t  max_sharpness;
+	int8_t  min_brightness;
+	int8_t  min_contrast;
+	int8_t  min_saturation;
+	int8_t  min_sharpness;
+};
 
 struct msm_camera_info {
 	int num_cameras;
 	uint8_t has_3d_support[MSM_MAX_CAMERA_SENSORS];
+	uint32_t sensor_Orientation[MSM_MAX_CAMERA_SENSORS];
 	uint8_t is_internal_cam[MSM_MAX_CAMERA_SENSORS];
 	uint32_t s_mount_angle[MSM_MAX_CAMERA_SENSORS];
+	struct fih_parameters_data parameters_data[MSM_MAX_CAMERA_SENSORS];
 };
 
 struct flash_ctrl_data {
@@ -598,6 +790,27 @@ struct flash_ctrl_data {
 struct msm_camsensor_info {
 	char name[MAX_SENSOR_NAME];
 	uint8_t flash_enabled;
+	uint8_t sensor_Orientation;
 	int8_t total_steps;
+	uint32_t autoexposure;
+	uint32_t effects;
+	uint32_t wb;
+	uint32_t antibanding;
+	uint32_t flash;
+	uint32_t focus;
+	uint32_t ISO;
+	uint32_t lensshade;
+	uint32_t scenemode;
+	uint32_t continuous_af;
+	uint32_t touchafaec;
+	uint32_t frame_rate_modes;
+	int8_t  max_brightness;
+	int8_t  max_contrast;
+	int8_t  max_saturation;
+	int8_t  max_sharpness;
+	int8_t  min_brightness;
+	int8_t  min_contrast;
+	int8_t  min_saturation;
+	int8_t  min_sharpness;
 };
 #endif /* __LINUX_MSM_CAMERA_H */

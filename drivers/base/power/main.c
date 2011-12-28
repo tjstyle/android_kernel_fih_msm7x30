@@ -560,6 +560,11 @@ static int device_resume(struct device *dev, pm_message_t state, bool async)
 			error = pm_op(dev, dev->class->pm, state);
 		} else if (dev->class->resume) {
 			pm_dev_dbg(dev, state, "legacy class ");
+/* FIHTDC, Div2-SW2-BSP, Penho, SuspendLog { */
+#ifdef CONFIG_FIH_SUSPEND_RESUME_LOG
+			print_symbol("class resume: %s\n", (unsigned long)dev->class->resume);
+#endif	// CONFIG_FIH_SUSPEND_RESUME_LOG
+/* } FIHTDC, Div2-SW2-BSP, Penho, SuspendLog */
 			error = legacy_resume(dev, dev->class->resume);
 		}
 	}
@@ -896,6 +901,11 @@ static int __device_suspend(struct device *dev, pm_message_t state, bool async)
 			error = pm_op(dev, dev->class->pm, state);
 		} else if (dev->class->suspend) {
 			pm_dev_dbg(dev, state, "legacy class ");
+/* FIHTDC, Div2-SW2-BSP, Penho, SuspendLog { */
+#ifdef CONFIG_FIH_SUSPEND_RESUME_LOG
+			print_symbol("class suspend: %s\n", (unsigned long)dev->class->suspend);
+#endif	// CONFIG_FIH_SUSPEND_RESUME_LOG
+/* } FIHTDC, Div2-SW2-BSP, Penho, SuspendLog */
 			error = legacy_suspend(dev, state, dev->class->suspend);
 		}
 		if (error)

@@ -84,7 +84,7 @@
 /* function declarations */
 /* FM Core audio paths. */
 #define TAVARUA_AUDIO_OUT_ANALOG_OFF	(0)
-#define TAVARUA_AUDIO_OUT_ANALOG_ON	(1)
+#define TAVARUA_AUDIO_OUT_ANALOG_ON	    (1)
 #define TAVARUA_AUDIO_OUT_DIGITAL_OFF	(0)
 #define TAVARUA_AUDIO_OUT_DIGITAL_ON	(1)
 
@@ -96,7 +96,10 @@ int tavarua_set_audio_path(int digital_on, int analog_on);
 #define MARIMBA_2_1	0x02010204
 #define BAHAMA_1_0	0x0302010A
 #define BAHAMA_2_0	0x04020205
-#define WAIT_TIMEOUT 2000
+/* +++ AlbertYCFang, 2011.06.13, FM +++ */
+//#define WAIT_TIMEOUT 2000
+#define WAIT_TIMEOUT 500
+/* --- AlbertYCFang, 2011.06.13, FM --- */
 #define RADIO_INIT_TIME 15
 #define TAVARUA_DELAY 10
 /*

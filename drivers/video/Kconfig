@@ -2396,6 +2396,13 @@ config FB_MSM_LCDC_SHARP_WVGA_PT
 	select FB_MSM_LCDC_PANEL
 	default n
 
+# SW2-6-MM-JH-SF8_Display_Porting-00+
+config FB_MSM_LCDC_SONY_WVGA_PT
+	bool
+	select FB_MSM_LCDC_PANEL
+	default n
+# SW2-6-MM-JH-SF8_Display_Porting-00-
+
 config FB_MSM_LCDC_SAMSUNG_OLED_PT
 	bool
 	select FB_MSM_LCDC_PANEL
@@ -2459,6 +2466,15 @@ config FB_MSM_LCDC_SHARP_WVGA_PT_PANEL
 	select FB_MSM_LCDC_SHARP_WVGA_PT
 	---help---
 	  Support for LCDC Sharp WVGA PT (480x800) panel
+
+# SW2-6-MM-JH-SF8_Display_Porting-00+
+config FB_MSM_LCDC_SONY_WVGA_PT_PANEL
+	depends on FB_MSM_LCDC_HW
+	bool "LCDC Sony WVGA PT Panel"
+	select FB_MSM_LCDC_SONY_WVGA_PT
+	---help---
+	  Support for LCDC Sony WVGA PT (480x800) panel
+# SW2-6-MM-JH-SF8_Display_Porting-00-
 
 config FB_MSM_LCDC_SAMSUNG_OLED_PT_PANEL
 	depends on FB_MSM_LCDC_HW
@@ -2628,7 +2644,21 @@ config FB_MSM_HDMI_ADV7520_PANEL_HDCP_SUPPORT
           Support for HDCP mode for ADV7520 HDMI 720p Panel
           Choose to enable HDCP
 
-
+config FB_MSM_HDMI_ADV7525_PANEL
+	depends on FB_MSM_MDP40 && FB_MSM_OVERLAY
+        bool "LCDC HDMI ADV7525 720p Panel"
+        select FB_MSM_DTV
+	default n
+        ---help---
+        Support for LCDC 720p HDMI panel attached to ADV7525
+        
+config FB_MSM_HDMI_ADV7525_PANEL_HDCP_SUPPORT
+        bool "Use HDCP mode"
+        default n
+        ---help---
+          Support for HDCP mode for ADV7525 HDMI 720p Panel
+          Choose to enable HDCP        
+	
 config FB_MSM_HDMI_MSM_PANEL
 	depends on FB_MSM_MDP40
 	bool "MSM HDMI 1080p Panel"

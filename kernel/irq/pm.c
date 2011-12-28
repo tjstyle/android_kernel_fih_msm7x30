@@ -66,14 +66,31 @@ EXPORT_SYMBOL_GPL(resume_device_irqs);
 /**
  * check_wakeup_irqs - check if any wake-up interrupts are pending
  */
+/* FIHTDC, Div2-SW2-BSP, Penho, SuspendLog { */
+#ifdef CONFIG_FIH_SUSPEND_RESUME_LOG
+#include "linux/pmdbg.h"
+#endif	// CONFIG_FIH_SUSPEND_RESUME_LOG
+/* } FIHTDC, Div2-SW2-BSP, Penho, SuspendLog */
 int check_wakeup_irqs(void)
 {
 	struct irq_desc *desc;
 	int irq;
 
 	for_each_irq_desc(irq, desc)
+/* FIHTDC, Div2-SW2-BSP, Penho, SuspendLog { */
+#ifdef CONFIG_FIH_SUSPEND_RESUME_LOG
+		if (desc->status & IRQ_WAKEUP) {
+			PMDBG(MSM_PM_DEBUG_FIH_PM, "[PM] IRQ%03d set WAKEUP : %x\n", irq, desc->status);
+			if (desc->status & IRQ_PENDING) {
+				printk(KERN_INFO "[PM] Suspend aborted by IRQ_WAKEUP(%d) IRQ_PENDING(%x).\n", irq, desc->status);
+				return -EBUSY;
+			}
+		}
+#else	// CONFIG_FIH_SUSPEND_RESUME_LOG
 		if ((desc->status & IRQ_WAKEUP) && (desc->status & IRQ_PENDING))
 			return -EBUSY;
+#endif	// CONFIG_FIH_SUSPEND_RESUME_LOG
+/* } FIHTDC, Div2-SW2-BSP, Penho, SuspendLog */
 
 	return 0;
 }

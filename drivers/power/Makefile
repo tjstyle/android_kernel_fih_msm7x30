@@ -41,3 +41,8 @@ obj-$(CONFIG_ISL9519_CHARGER)	+= isl9519q.o
 obj-$(CONFIG_PM8058_FIX_USB)	+= pm8058_usb_fix.o
 obj-$(CONFIG_BATTERY_QCIBAT)	+= qci_battery.o
 obj-$(CONFIG_SMB137B_CHARGER)   += smb137b.o
+
+obj-$(CONFIG_BATTERY_FIH_DS2784)	+= fih_ds2784_battery.o
+obj-$(CONFIG_BATTERY_FIH_MSM)	+= fih_msm_battery.o
+obj-$(CONFIG_BATTERY_BQ275X0)	+= bq275x0_battery.o
+obj-$(CONFIG_BQ275X0_ROMMODE)	+= bq275x0_RomMode.o

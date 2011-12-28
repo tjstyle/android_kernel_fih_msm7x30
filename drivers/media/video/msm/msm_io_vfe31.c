@@ -122,10 +122,10 @@ static struct clk *camio_csi_vfe_clk;
 static struct clk *camio_jpeg_clk;
 static struct clk *camio_jpeg_pclk;
 static struct clk *camio_vpe_clk;
-static struct vreg *vreg_gp2;
-static struct vreg *vreg_lvsw1;
-static struct vreg *vreg_gp6;
-static struct vreg *vreg_gp16;
+//static struct vreg *vreg_gp2;    /* FIHTDC, Div2-SW2-BSP, Ming, LCM */
+//static struct vreg *vreg_lvsw1;
+//static struct vreg *vreg_gp6;
+//static struct vreg *vreg_gp16;
 static struct msm_camera_io_ext camio_ext;
 static struct msm_camera_io_clk camio_clk;
 static struct resource *camifpadio, *csiio;
@@ -209,6 +209,9 @@ void msm_io_memcpy(void __iomem *dest_addr, void __iomem *src_addr, u32 len)
 
 static void msm_camera_vreg_enable(struct platform_device *pdev)
 {
+/* FIHTDC, Div2-SW2-BSP, Ming, LCM { */
+/* TODO:  enable correct vreg to avoid damaging other components */
+#if 0
 	vreg_gp2 = vreg_get(NULL, "gp2");
 	if (IS_ERR(vreg_gp2)) {
 		pr_err("%s: VREG GP2 get failed %ld\n", __func__,
@@ -299,10 +302,15 @@ gp2_disable:
 gp2_put:
 	vreg_put(vreg_gp2);
 	vreg_gp2 = NULL;
+#endif
+/* } FIHTDC, Div2-SW2-BSP, Ming, LCM */	
 }
 
 static void msm_camera_vreg_disable(void)
 {
+/* FIHTDC, Div2-SW2-BSP, Ming, LCM { */
+/* TODO:  enable correct vreg to avoid damaging other components */
+#if 0
 	if (vreg_gp2) {
 		vreg_disable(vreg_gp2);
 		vreg_put(vreg_gp2);
@@ -323,6 +331,8 @@ static void msm_camera_vreg_disable(void)
 		vreg_put(vreg_gp16);
 		vreg_gp16 = NULL;
 	}
+#endif
+/* } FIHTDC, Div2-SW2-BSP, Ming, LCM */
 }
 
 int msm_camio_clk_enable(enum msm_camio_clk_type clktype)

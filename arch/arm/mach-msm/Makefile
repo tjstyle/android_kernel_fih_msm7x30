@@ -13,6 +13,15 @@ ifndef CONFIG_ARCH_MSM8X60
 	endif
 endif
 
+
+# FIH, JiaHao, 2011/09/14 {
+# setup fver for auto-pack
+ifdef CONFIG_FIH_FXX
+ ifndef CONFIG_FIH_FTM
+	obj-y += fih_fver.o
+endif
+endif
+# FIH, JiaHao, 2011/09/14 }
 obj-$(CONFIG_ARCH_MSM_ARM11) += acpuclock.o timer.o
 obj-$(CONFIG_ARCH_MSM_SCORPION) += timer.o
 obj-$(CONFIG_ARCH_MSM_SCORPION) += pmu.o
@@ -187,3 +196,12 @@ endif
 obj-$(CONFIG_MSM_SLEEP_STATS) += msm_sleep_stats.o idle_stats.o
 obj-$(CONFIG_MSM_SHOW_RESUME_IRQ) += msm_show_resume_irq.o
 obj-$(CONFIG_BT_MSM_PINTEST)  += btpintest.o
+
+# Div2-SW2-BSP,JOE HSU ,Kernel Proc fs
+#obj-$(CONFIG_FIH_CONFIG_GROUP) += fxx_info.o
+obj-y += fxx_info.o
+
+#SW2-5-1-MP-DbgCfgTool-00+[
+obj-y += dbgcfgtool.o
+obj-$(CONFIG_FIH_LAST_ALOG) += alog_ram_console.o
+#SW2-5-1-MP-DbgCfgTool-00+]

@@ -89,7 +89,7 @@ void ddl_pmem_alloc(struct ddl_buf_addr *buff_addr, size_t sz, u32 align)
 	s32 physical_addr;
 	u32 align_offset;
 
-	DBG("\n%s() IN : phy_addr(%p) ker_addr(%p) size(%u)",
+	ERR("\n%s() IN : phy_addr(%p) ker_addr(%p) size(%u)",
 		__func__, buff_addr->physical_base_addr,
 		buff_addr->virtual_base_addr, (u32)sz);
 
@@ -106,8 +106,18 @@ void ddl_pmem_alloc(struct ddl_buf_addr *buff_addr, size_t sz, u32 align)
 
 	physical_addr = pmem_kalloc((sz + guard_bytes),
 				      PMEM_MEMTYPE_EBI1 | PMEM_ALIGNMENT_4K);
+        /*FIHTDC, DerrickDRLiu, the error handler of failed pmem_kalloc*/
+        if(physical_addr <= 0)
+	{
+		ERR("pmem_kalloc failed\n");
+		mdelay(10);
+		buff_addr->virtual_base_addr = 0;
+		pmem_kfree(physical_addr);
+		return;
+	}
+        /*FIHTDC, DerrickDRLiu*/
 	buff_addr->physical_base_addr = (u32 *)physical_addr;
-
+        ERR("%s() physical_base_addr  %p\n", __func__, buff_addr->physical_base_addr);
 	if (IS_ERR((void *)physical_addr)) {
 		pr_err("%s(): could not allocte in kernel pmem buffers\n",
 		       __func__);
@@ -117,6 +127,15 @@ void ddl_pmem_alloc(struct ddl_buf_addr *buff_addr, size_t sz, u32 align)
 	buff_addr->virtual_base_addr =
 	    (u32 *) ioremap((unsigned long)physical_addr,
 			    sz + guard_bytes);
+        ERR("%s() virtual_base_addr  %p \n", __func__, buff_addr->virtual_base_addr);
+        /*FIHTDC, DerrickDRLiu, the null virtual_base_addr will be returned*/
+        if (!buff_addr->virtual_base_addr) {
+
+		pr_err("%s: mapped virtual address is NULL\n",
+		       __func__);
+		pmem_kfree(physical_addr);
+		return;
+	}/*FIHTDC, DerrickDRLiu*/
 	memset(buff_addr->virtual_base_addr, 0 , sz + guard_bytes);
 	if (!buff_addr->virtual_base_addr) {
 
@@ -138,7 +157,7 @@ void ddl_pmem_alloc(struct ddl_buf_addr *buff_addr, size_t sz, u32 align)
 	    (u32 *) ((u32) (buff_addr->virtual_base_addr)
 		     + align_offset);
 
-	DBG("\n%s() OUT : phy_addr(%p) ker_addr(%p) size(%u)", __func__,
+	ERR("\n%s() OUT : phy_addr(%p) ker_addr(%p) size(%u)", __func__,
 		buff_addr->physical_base_addr, buff_addr->virtual_base_addr,
 		buff_addr->buffer_size);
 

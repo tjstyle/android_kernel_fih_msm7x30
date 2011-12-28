@@ -46,6 +46,7 @@
 #include <linux/uaccess.h>
 #include <linux/wakelock.h>
 
+#include <mach/rpc_pmapp.h> // DIV2-SW2-BSP-FBx-CHG
 static const char driver_name[] = "msm72k_udc";
 
 /* #define DEBUG */
@@ -288,6 +289,9 @@ static inline enum chg_type usb_get_chg_type(struct usb_info *ui)
 }
 
 #define USB_WALLCHARGER_CHG_CURRENT 1800
+/* FIHTDC, Div2-SW2-BSP, Penho, FB0G.B-783 { */
+#define USB_CAR_CHARGER_CHG_CURRENT 500
+/* } FIHTDC, Div2-SW2-BSP, Penho, FB0G.B-783 */
 static int usb_get_max_power(struct usb_info *ui)
 {
 	struct msm_otg *otg = to_msm_otg(ui->xceiv);
@@ -312,6 +316,13 @@ static int usb_get_max_power(struct usb_info *ui)
 
 	if (temp == USB_CHG_TYPE__WALLCHARGER)
 		return USB_WALLCHARGER_CHG_CURRENT;
+
+/* FIHTDC, Div2-SW2-BSP, Penho, FB0G.B-783 { */
+#ifdef CONFIG_FIH_FXX
+	if (temp == USB_CHG_TYPE__SDP)
+		return USB_CAR_CHARGER_CHG_CURRENT;
+#endif	// CONFIG_FIH_FXX
+/* } FIHTDC, Div2-SW2-BSP, Penho, FB0G.B-783 */
 
 	if (suspended || !configured)
 		return 0;
@@ -578,7 +589,7 @@ static void usb_ept_enable(struct msm_endpoint *ept, int yes,
 			n &= ~(CTRL_RXE);
 	}
 	/* complete all the updates to ept->head before enabling endpoint*/
-	dma_coherent_pre_ops();
+	mb();
 	writel(n, USB_ENDPTCTRL(ept->num));
 
 	/* Ensure endpoint is enabled before returning */
@@ -592,8 +603,10 @@ static void usb_ept_start(struct msm_endpoint *ept)
 {
 	struct usb_info *ui = ept->ui;
 	struct msm_request *req = ept->req;
-	int i, cnt;
+	struct msm_request *f_req = ept->req;
 	unsigned n = 1 << ept->bit;
+	unsigned info;
+	int reprime_cnt = 0;
 
 	BUG_ON(req->live);
 
@@ -615,33 +628,42 @@ static void usb_ept_start(struct msm_endpoint *ept)
 		req = req->next;
 	}
 
+	rmb();
 	/* link the hw queue head to the request's transaction item */
 	ept->head->next = ept->req->item_dma;
 	ept->head->info = 0;
 
+reprime_ept:
 	/* flush buffers before priming ept */
-	dma_coherent_pre_ops();
-
+	mb();
 	/* during high throughput testing it is observed that
 	 * ept stat bit is not set even thoguh all the data
 	 * structures are updated properly and ept prime bit
-	 * is set. To workaround the issue, try to check if
-	 * ept stat bit otherwise try to re-prime the ept
+	 * is set. To workaround the issue, use dTD INFO bit
+	 * to make decision on re-prime or not.
 	 */
-	for (i = 0; i < 5; i++) {
-		writel(n, USB_ENDPTPRIME);
-		for (cnt = 0; cnt < 3000; cnt++) {
-			if (!(readl(USB_ENDPTPRIME) & n) &&
-					(readl(USB_ENDPTSTAT) & n))
-				return;
-			udelay(1);
-		}
-	}
+	writel_relaxed(n, USB_ENDPTPRIME);
+	/* busy wait till endptprime gets clear */
+	while ((readl_relaxed(USB_ENDPTPRIME) & n))
+		;
+	if (readl_relaxed(USB_ENDPTSTAT) & n)
+		return;
 
-	if (!(readl(USB_ENDPTSTAT) & n))
-		pr_err("Unable to prime the ept%d%s\n",
-				ept->num,
-				ept->flags & EPT_FLAG_IN ? "in" : "out");
+	rmb();
+	info = f_req->item->info;
+	if (info & INFO_ACTIVE) {
+		if (reprime_cnt++ < 3)
+			goto reprime_ept;
+		else
+			pr_err("%s(): ept%d%s prime failed. ept: config: %x"
+				"active: %x next: %x info: %x\n"
+				" req@ %x next: %x info: %x\n",
+				__func__, ept->num,
+				ept->flags & EPT_FLAG_IN ? "in" : "out",
+				ept->head->config, ept->head->active,
+				ept->head->next, ept->head->info,
+				f_req->item_dma, f_req->item->next, info);
+	}
 }
 
 int usb_ept_queue_xfer(struct msm_endpoint *ept, struct usb_request *_req)
@@ -1436,6 +1458,16 @@ static void usb_do_work_check_vbus(struct usb_info *ui)
 	else
 		ui->flags |= USB_FLAG_VBUS_OFFLINE;
 	spin_unlock_irqrestore(&ui->lock, iflags);
+	
+	/* Div2-SW2-BSP-CHG { */
+	if (is_usb_online(ui)) {
+		dev_info(&ui->pdev->dev, "vote A0 clock on\n");
+		pmapp_clock_vote("CHRG", PMAPP_CLOCK_ID_A0, PMAPP_CLOCK_VOTE_ON); //vote A0 clock on
+	} else {
+		dev_info(&ui->pdev->dev, "vote A0 clock off\n");
+		pmapp_clock_vote("CHRG", PMAPP_CLOCK_ID_A0, PMAPP_CLOCK_VOTE_OFF); //vote A0 clock off
+	}
+	/* } Div2-SW2-BSP-CHG */
 }
 
 static void usb_do_work(struct work_struct *w)
@@ -1569,7 +1601,19 @@ static void usb_do_work(struct work_struct *w)
 				if (maxpower < 0)
 					break;
 
+/* FIHTDC, Div2-SW2-BSP, Penho, FB0G.B-783 { */
+/* DUT will stop charging after receiving USB suspend interrupt.
+*	 This behavior makes two situations that DUT can not be charged.
+*	1. An power-offed DUT boot up with car charger inserted and a suspending PC.
+*	2. An DUT plug with a PC, then PC enters suspend mode.
+*	To prevent these situations, disable this behavior, and let DUT draws 500mA when charger type is HOST_PC.
+*	Note. This modification might violate USB 2.0 spec, but FA3 & Nexus one have the same behavior, too.
+*   Ref. [SQ01.B-495]
+*/
+#ifndef CONFIG_FIH_FXX
 				otg_set_power(ui->xceiv, 0);
+#endif	// CONFIG_FIH_FXX
+/* } FIHTDC, Div2-SW2-BSP, Penho, FB0G.B-783 */
 				/* To support TCXO during bus suspend
 				 * This might be dummy check since bus suspend
 				 * is not implemented as of now
@@ -1858,11 +1902,21 @@ static void usb_debugfs_init(struct usb_info *ui)
 	if (IS_ERR(dent))
 		return;
 
+/* FIHTDC, Div2-SW2-BSP, Penho, FB0G.B-565 { */
+#ifdef CONFIG_FIH_FXX
+	debugfs_create_file("status", 0444, dent, ui, &debug_stat_ops);
+	debugfs_create_file("reset", 0220, dent, ui, &debug_reset_ops);
+	debugfs_create_file("cycle", 0220, dent, ui, &debug_cycle_ops);
+	debugfs_create_file("release_wlocks", 0664, dent, ui,
+						&debug_wlocks_ops);
+#else	// CONFIG_FIH_FXX
 	debugfs_create_file("status", 0444, dent, ui, &debug_stat_ops);
 	debugfs_create_file("reset", 0222, dent, ui, &debug_reset_ops);
 	debugfs_create_file("cycle", 0222, dent, ui, &debug_cycle_ops);
 	debugfs_create_file("release_wlocks", 0666, dent, ui,
 						&debug_wlocks_ops);
+#endif	// CONFIG_FIH_FXX
+/* } FIHTDC, Div2-SW2-BSP, Penho, FB0G.B-565 */
 }
 #else
 static void usb_debugfs_init(struct usb_info *ui) {}

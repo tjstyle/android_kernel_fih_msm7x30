@@ -330,8 +330,12 @@ static ssize_t netstat_show(const struct device *d,
 	read_lock(&dev_base_lock);
 	if (dev_isalive(dev)) {
 		const struct net_device_stats *stats = dev_get_stats(dev);
+		// FihtdcCode@20111114 Weichu add for SF4HC.B-1213 begin
+		if (stats != NULL){
+		// FihtdcCode@20111114 Weichu add for SF4HC.B-1213 end
 		ret = sprintf(buf, fmt_ulong,
 			      *(unsigned long *)(((u8 *) stats) + offset));
+		}   // FihtdcCode@20111114 Weichu add for SF4HC.B-1213
 	}
 	read_unlock(&dev_base_lock);
 	return ret;

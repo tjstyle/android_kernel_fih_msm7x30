@@ -597,7 +597,6 @@ config ARCH_MSM
 	select GENERIC_CLOCKEVENTS
 	select ARCH_WANT_OPTIONAL_GPIOLIB
 	select COMMON_CLKDEV
-	select HAVE_SCHED_CLOCK
 	help
 	  Support for Qualcomm MSM/QSD based systems.  This runs on the
 	  ARM11/Scorpion apps processor of the MSM/QSD and depends on a
@@ -1290,7 +1289,7 @@ config OABI_COMPAT
 	  at all). If in doubt say Y.
 
 config ARCH_HAS_HOLES_MEMORYMODEL
-	bool
+	bool "CONFIG_ARCH_HAS_HOLES_MEMORYMODEL"
 
 # Discontigmem is deprecated
 config ARCH_DISCONTIGMEM_ENABLE

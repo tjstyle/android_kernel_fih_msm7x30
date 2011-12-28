@@ -98,6 +98,7 @@ int mdp_lcdc_on(struct platform_device *pdev)
 	if (mfd->key != MFD_KEY)
 		return -EINVAL;
 
+    printk(KERN_INFO "[DISPLAY] %s\n", __func__);
 	fbi = mfd->fbi;
 	var = &fbi->var;
 
@@ -240,8 +241,18 @@ int mdp_lcdc_on(struct platform_device *pdev)
 	ret = panel_next_on(pdev);
 	if (ret == 0) {
 		/* enable LCDC block */
-		MDP_OUTP(MDP_BASE + LCDC_BASE, 1);
-		mdp_pipe_ctrl(MDP_OVERLAY0_BLOCK, MDP_BLOCK_POWER_ON, FALSE);
+		/* FIHTDC-Div2-SW2-BSP, Ming { */
+	    /* Fix MDP POWER On/Off Issue */
+		if (inpdw(MDP_BASE + LCDC_BASE) & 0x01) { /* enabled already */
+		    /* If LCDC was already enabled in APPSBOOT, 
+		    we should not set MDP_OVERLAY0_BLOCK power-on again. 
+			refer to mdp4_util.c */
+		    printk(KERN_INFO "[DISPLAY] %s: LCDC enabled already.\n", __func__);
+		} else {
+		    MDP_OUTP(MDP_BASE + LCDC_BASE, 1);
+		    mdp_pipe_ctrl(MDP_OVERLAY0_BLOCK, MDP_BLOCK_POWER_ON, FALSE);
+		}
+		/* } FIHTDC-Div2-SW2-BSP, Ming */
 	}
 	/* MDP cmd block disable */
 	mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_OFF, FALSE);
@@ -253,6 +264,7 @@ int mdp_lcdc_off(struct platform_device *pdev)
 {
 	int ret = 0;
 
+    printk(KERN_INFO "[DISPLAY] %s\n", __func__);
 	/* MDP cmd block enable */
 	mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_ON, FALSE);
 	MDP_OUTP(MDP_BASE + LCDC_BASE, 0);

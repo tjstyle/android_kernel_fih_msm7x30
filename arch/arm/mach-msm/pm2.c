@@ -61,6 +61,11 @@
 #include "pm.h"
 #include "spm.h"
 #include "sirc.h"
+//SW2-5-1-MP-DbgCfgTool-00+[
+#ifdef CONFIG_FIH_LAST_ALOG
+#include "mach/alog_ram_console.h"
+#endif 
+//SW2-5-1-MP-DbgCfgTool-00+]
 
 /******************************************************************************
  * Debug Definitions
@@ -76,10 +81,42 @@ enum {
 	MSM_PM_DEBUG_IDLE = 1U << 6,
 };
 
+/* FIHTDC, Div2-SW2-BSP, Penho, Add for fast dormancy, packet filter, wakeup irq { */
+#ifdef CONFIG_FIH_POWER_LOG
+#include "linux/pmdbg.h"
+
+int msm_pm_debug_mask;
+#else	// CONFIG_FIH_POWER_LOG
 static int msm_pm_debug_mask;
+#endif	// CONFIG_FIH_POWER_LOG
+/* } FIHTDC, Div2-SW2-BSP, Penho, Add for fast dormancy, packet filter, wakeup irq */
 module_param_named(
 	debug_mask, msm_pm_debug_mask, int, S_IRUGO | S_IWUSR | S_IWGRP
 );
+
+/* FIHTDC, Div2-SW2-BSP, Penho, TRACE_CLK { */
+#ifdef CONFIG_FIH_POWER_LOG
+#include <asm/clkdev.h>
+#include "devices.h"
+#include "clock-pcom.h"
+#include "clock-voter.h"
+
+extern int pc_clk_enable(unsigned id);
+extern void show_msm_clock_require_tcxo(void);
+
+int g_fih_trace_pcclk = PMDBG_INIT_T_PCCLK;
+module_param_named(
+	tpcclk, g_fih_trace_pcclk, int, S_IRUGO | S_IWUSR | S_IWGRP
+);
+
+int g_fih_trace_irq = PMDBG_INIT_T_IRQ;
+module_param_named(
+	tirq, g_fih_trace_irq, int, S_IRUGO | S_IWUSR | S_IWGRP
+);
+#endif	// CONFIG_FIH_POWER_LOG
+/* } FIHTDC, Div2-SW2-BSP, Penho, TRACE_CLK */
+
+#include "linux/pmlog.h"
 
 #define MSM_PM_DPRINTK(mask, level, message, ...) \
 	do { \
@@ -112,6 +149,34 @@ module_param_named(
 	} while (0)
 
 #define MAX_NR_CLKS 33
+
+/******************************************************************************
+ * supported the Fast Dormancy
+ *****************************************************************************/
+
+/* FIHTDC, Div2-SW2-BSP, Penho, fast dormancy { */
+#ifdef CONFIG_FIH_FAST_DORMANCY
+#include <linux/fs.h>
+
+static struct file * g_dorm_fifo = NULL;
+void open_dorm_fifo(void)
+{
+	if (g_dorm_fifo == NULL) {
+		g_dorm_fifo = filp_open("/data/radio/dorm_fifo", O_RDWR, 0);
+		if (IS_ERR(g_dorm_fifo)) {
+			MSM_PM_DPRINTK(MSM_PM_DEBUG_FIH_MODULE, KERN_ERR,
+				"open_dorm_fifo() : dorm_fifo doesn't exist!!!\n");
+			g_dorm_fifo = NULL;
+		}
+		else {
+			MSM_PM_DPRINTK(MSM_PM_DEBUG_FIH_MODULE, KERN_INFO,
+				"open_dorm_fifo() : Open dorm_fifo success : %x\n", (unsigned int)g_dorm_fifo);
+			g_dorm_fifo->f_path.dentry->d_inode->i_flags |= S_NOCMTIME;
+		}
+	}
+}
+#endif	// CONFIG_FIH_FAST_DORMANCY
+/* } FIHTDC, Div2-SW2-BSP, Penho, fast dormancy */
 
 /******************************************************************************
  * Sleep Modes and Parameters
@@ -935,7 +1000,11 @@ struct msm_pm_smem_t {
 	uint32_t rpc_prog;
 	uint32_t rpc_proc;
 	char     smd_port_name[DEM_MAX_PORT_NAME_LEN];
+#if defined(CONFIG_FIH_POWER_LOG)
+	uint32_t gpioInfo;
+#else
 	uint32_t reserved2;
+#endif
 };
 
 
@@ -957,6 +1026,41 @@ static int msm_pm_modem_busy(void)
 	return 0;
 }
 
+//Div2-SW2-BSP-pmlog, HenryMCWang +
+#if (defined(CONFIG_FIH_FTM) || !defined(CONFIG_FIH_POWER_LOG))
+#define PM_LOG(msg...) printk(msg)
+#else	// (defined(CONFIG_FIH_FTM) || !defined(CONFIG_FIH_POWER_LOG))
+#define PM_LOG(msg...) {printk(msg); pmlog(msg);}
+#endif	// (defined(CONFIG_FIH_FTM) || !defined(CONFIG_FIH_POWER_LOG))
+
+#define convert_sec(x) (int)((ulong)x * 100 / 3276862)
+
+/*
+ * Print pmlog information on shared memory sleep variables
+ */
+void smsm_pmlog_sleep_info(void)
+{
+	uint32_t wr = msm_pm_smem_data->wakeup_reason;
+
+	PM_LOG("WR(%x):%4ds, wakeup by", wr, convert_sec(msm_pm_smem_data->sleep_time));
+	if(wr & SMSM_WKUP_REASON_RPC)
+		PM_LOG(" RPC[%s-%pF-%d]", msm_pm_smem_data->smd_port_name, (void *)msm_pm_smem_data->rpc_prog, msm_pm_smem_data->rpc_proc);
+	if(wr & SMSM_WKUP_REASON_INT)
+		PM_LOG(" INT");
+	if(wr & SMSM_WKUP_REASON_TIMER)
+		PM_LOG(" TIMER");
+	if(wr & SMSM_WKUP_REASON_ALARM)
+		PM_LOG(" ALARM");    
+	if(wr & SMSM_WKUP_REASON_RESET)
+		PM_LOG(" RESET");
+	if(wr & SMSM_WKUP_REASON_GPIO)
+	{
+		PM_LOG(" GPIO%d", msm_pm_smem_data->gpioInfo);
+	}
+	PM_LOG("\n");
+}
+//Div2-SW2-BSP-pmlog, HenryMCWang -
+
 /*
  * Power collapse the Apps processor.  This function executes the handshake
  * protocol with Modem.
@@ -975,6 +1079,9 @@ static int msm_pm_power_collapse
 	uint32_t saved_vector[2];
 	int collapsed = 0;
 	int ret;
+#if defined(CONFIG_FIH_POWER_LOG)
+	int exeCollapse = 0;
+#endif	// defined(CONFIG_FIH_POWER_LOG)
 
 	MSM_PM_DPRINTK(MSM_PM_DEBUG_SUSPEND|MSM_PM_DEBUG_POWER_COLLAPSE,
 		KERN_INFO, "%s(): idle %d, delay %u, limit %u\n", __func__,
@@ -1055,6 +1162,9 @@ static int msm_pm_power_collapse
 		saved_acpuclk_rate);
 
 	if (saved_acpuclk_rate == 0) {
+#if defined(CONFIG_FIH_POWER_LOG)
+		pmlog("%s(): saved_acpuclk_rate == 0 aborted\n", __func__);
+#endif	// defined(CONFIG_FIH_POWER_LOG)
 		msm_pm_config_hw_after_power_up();
 		goto power_collapse_early_exit;
 	}
@@ -1079,6 +1189,10 @@ static int msm_pm_power_collapse
 #endif
 
 	collapsed = msm_pm_collapse();
+
+#if defined(CONFIG_FIH_POWER_LOG)
+	exeCollapse = 1;
+#endif	// defined(CONFIG_FIH_POWER_LOG)
 
 #ifdef CONFIG_CACHE_L2X0
 	l2x0_resume(collapsed);
@@ -1199,6 +1313,10 @@ static int msm_pm_power_collapse
 
 	MSM_PM_DEBUG_PRINT_STATE("msm_pm_power_collapse(): RUN");
 
+#if defined(CONFIG_FIH_POWER_LOG)
+	smsm_pmlog_sleep_info();
+#endif	// defined(CONFIG_FIH_POWER_LOG)
+	
 	smd_sleep_exit();
 	return 0;
 
@@ -1251,6 +1369,13 @@ power_collapse_restore_gpio_bail:
 
 	if (collapsed)
 		smd_sleep_exit();
+
+#if defined(CONFIG_FIH_POWER_LOG)
+	if (exeCollapse)
+	{
+		smsm_pmlog_sleep_info();
+	}
+#endif	// defined(CONFIG_FIH_POWER_LOG)
 
 power_collapse_bail:
 	return ret;
@@ -1312,6 +1437,10 @@ static int msm_pm_power_collapse_standalone(void)
 	MSM_PM_DPRINTK(MSM_PM_DEBUG_SUSPEND | MSM_PM_DEBUG_POWER_COLLAPSE,
 		KERN_INFO,
 		"%s(): msm_pm_collapse returned %d\n", __func__, collapsed);
+
+#if defined(CONFIG_FIH_POWER_LOG)
+	smsm_pmlog_sleep_info();
+#endif	// defined(CONFIG_FIH_POWER_LOG)
 
 	ret = msm_spm_set_low_power_mode(MSM_SPM_MODE_CLOCK_GATING, false);
 	WARN_ON(ret);
@@ -1611,6 +1740,24 @@ static int msm_pm_enter(suspend_state_t state)
 
 	time = msm_timer_get_sclk_time(&period);
 	ret = msm_clock_require_tcxo(clk_ids, MAX_NR_CLKS);
+/* FIHTDC, Div2-SW2-BSP, Penho, TRACE_CLK { */
+#ifdef CONFIG_FIH_POWER_LOG
+#if 1
+	show_msm_clock_require_tcxo();
+#else
+	if (g_fih_trace_pcclk >= 0) {
+		struct clk_lookup * p = msm_clocks_7x30;
+		int i;
+		for (i = 0; i < msm_num_clocks_7x30; i++, p++) {
+			if (p->clk->ops->is_enabled(p->clk->id))
+				printk(KERN_INFO "[PM] %03d. %cid(%3d) \"%s\" - %s - %s\n",
+					i, (p->clk->ops->enable == pc_clk_enable) ? 'P' : ((p->clk->ops == &clk_ops_voter) ? 'V' : 'O'),
+					p->clk->id, p->con_id, p->clk->dbg_name, p->dev_id);
+		}
+	}
+#endif
+#endif	// CONFIG_FIH_POWER_LOG
+/* } FIHTDC, Div2-SW2-BSP, Penho, TRACE_CLK */
 #elif defined(CONFIG_CLOCK_BASED_SLEEP_LIMIT)
 	ret = msm_clock_require_tcxo(NULL, 0);
 #endif /* CONFIG_MSM_IDLE_STATS */
@@ -1687,6 +1834,18 @@ static int msm_pm_enter(suspend_state_t state)
 			sleep_limit |= SLEEP_RESOURCE_MEMORY_BIT0;
 #endif
 
+/* FIHTDC, Div2-SW2-BSP, Penho, fast dormancy { */
+#ifdef CONFIG_FIH_FAST_DORMANCY
+		if (g_dorm_fifo) {
+			char dorm_input[1] = {'1'};
+			MSM_PM_DPRINTK(MSM_PM_DEBUG_FIH_MODULE, KERN_INFO,
+				"%s() : dorm_fifo ready to Enter Fast Dormancy.\n", __func__);
+			g_dorm_fifo->f_op->llseek(g_dorm_fifo, 0, 0);
+			g_dorm_fifo->f_op->write(g_dorm_fifo, dorm_input, 1, &g_dorm_fifo->f_pos);
+		}
+#endif	// CONFIG_FIH_FAST_DORMANCY
+/* } FIHTDC, Div2-SW2-BSP, Penho, fast dormancy */
+
 		for (i = 0; i < 30 && msm_pm_modem_busy(); i++)
 			udelay(500);
 
@@ -1744,37 +1903,128 @@ static struct platform_suspend_ops msm_pm_ops = {
 
 static uint32_t restart_reason = 0x776655AA;
 
+/* Div2-SW2-BSP-FBX-BATT { */
+#ifdef CONFIG_BATTERY_BQ275X0
+#ifdef CONFIG_FIH_CONFIG_GROUP
+#include "smd_private.h"
+#endif
+extern int bq275x0_battery_snooze_mode(bool set);
+#endif
+/* } Div2-SW2-BSP-FBX-BATT */
+
 static void msm_pm_power_off(void)
 {
-	msm_rpcrouter_close();
-	msm_proc_comm(PCOM_POWER_DOWN, 0, 0);
+	// FIHTDC, HenryMCWang, give oem shared memory command to modem {
+	uint32_t oem_cmd = SMEM_PROC_COMM_OEM_POWER_OFF;
+	uint32_t smem_response = 0;
+	char buf[128];
+	// } FIHTDC, HenryMCWang, give oem shared memory command to modem
+	
+/* Div2-SW2-BSP-FBX-BATT { */
+#ifdef CONFIG_BATTERY_BQ275X0
+#ifdef CONFIG_FIH_CONFIG_GROUP
+    int product_id = fih_get_product_id();
+    int product_phase = fih_get_product_phase();
+	
+    if (product_id == Product_FB0 || product_id == Product_FD1) {
+        if (!((product_phase >= Product_PR1 && product_phase <= Product_PR230) ||
+			(product_phase == Product_EVB))) { 
+			bq275x0_battery_snooze_mode(false);
+		}
+	} else
+#endif
+		bq275x0_battery_snooze_mode(false);
+#endif
+/* } Div2-SW2-BSP-FBX-BATT */
+
+	// FIHTDC, HenryMCWang, give oem shared memory command to modem {
+	msm_proc_comm_oem(PCOM_CUSTOMER_CMD1, &oem_cmd, &smem_response, (unsigned *)buf);
+
 	for (;;)
 		;
+	// } FIHTDC, HenryMCWang, give oem shared memory command to modem
 }
 
 static void msm_pm_restart(char str, const char *cmd)
 {
+	// FIHTDC, HenryMCWang, give oem shared memory command to modem {
+	uint32_t oem_cmd = SMEM_PROC_COMM_OEM_RESET_CHIP_EBOOT;
+	uint32_t smem_response = 0;
+	// } FIHTDC, HenryMCWang, give oem shared memory command to modem
+	
 	msm_rpcrouter_close();
 	msm_proc_comm(PCOM_RESET_CHIP, &restart_reason, 0);
 
+	// FIHTDC, HenryMCWang, give oem shared memory command to modem {	
+	msm_proc_comm_oem(PCOM_CUSTOMER_CMD1, &oem_cmd, &smem_response, &restart_reason);
+	
+	//SW2-5-1-MP-DbgCfgTool-00+[
+	#ifdef CONFIG_FIH_LAST_ALOG	
+	     alog_ram_console_sync_time(LOG_TYPE_ALL, SYNC_BEFORE);
+	#endif	
+	//SW2-5-1-MP-DbgCfgTool-00+]
+
 	for (;;)
 		;
+	// } FIHTDC, HenryMCWang, give oem shared memory command to modem
 }
+
+/* FIHTDC, Div2-SW2-BSP, Penho, UsbPorting { */
+void Restart_To_Download(void)
+{
+//	if(Download_Enter != 0) {
+//		Download_Enter = 0;
+		restart_reason = 0x46544444;
+//	}
+	msm_pm_restart('0', NULL);
+	emergency_restart();
+}
+EXPORT_SYMBOL_GPL(Restart_To_Download);
+/* } FIHTDC, Div2-SW2-BSP, Penho, UsbPorting */
 
 static int msm_reboot_call
 	(struct notifier_block *this, unsigned long code, void *_cmd)
 {
+       //Div2D5-LC-BSP-Porting_RecoveryMode-00 +[
+       unsigned long POWERON_CAUSE_ENTER_DL = 0x46494801;    
+       unsigned long POWERON_CAUSE_LOAD_RECOVERY = 0x46494802;
+       unsigned long POWERON_CAUSE_SWITCH_FTM_OR_ANDROID = 0x46494803;
+       //Div2D5-LC-BSP-Porting_RecoveryMode-00 +]
+
 	if ((code == SYS_RESTART) && _cmd) {
 		char *cmd = _cmd;
 		if (!strcmp(cmd, "bootloader")) {
 			restart_reason = 0x77665500;
 		} else if (!strcmp(cmd, "recovery")) {
 			restart_reason = 0x77665502;
+			memcpy((unsigned int *)(MSM_SHARED_RAM_BASE + 0x10), &POWERON_CAUSE_LOAD_RECOVERY, sizeof(uint32_t));    //Div2D5-LC-BSP-Porting_RecoveryMode-00 +
 		} else if (!strcmp(cmd, "eraseflash")) {
 			restart_reason = 0x776655EF;
 		} else if (!strncmp(cmd, "oem-", 4)) {
 			unsigned code = simple_strtoul(cmd + 4, 0, 16) & 0xff;
 			restart_reason = 0x6f656d00 | code;
+		// FIHTDC, HenryMCWang, give restart reason = 0x46544443 when kernel panic reboot {
+		} else if (!strcmp(cmd, "panic")) {
+			restart_reason = 0x46544443;
+		// } FIHTDC, HenryMCWang, give restart reason = 0x46544443 when kernel panic reboot
+		//Div2D5-LC-BSP-Porting_RecoveryMode-00 +[
+		} else if (!strncmp(cmd, "SDL1", 4)) {
+			restart_reason = 0x53444C31;    //ASCII code of "SDL1"
+			memcpy((unsigned int *)(MSM_SHARED_RAM_BASE + 0x10), &POWERON_CAUSE_ENTER_DL, sizeof(uint32_t));
+		} else if (!strncmp(cmd, "SDL2", 4)) {
+			restart_reason = 0x53444C32;    //ASCII code of "SDL2"
+			memcpy((unsigned int *)(MSM_SHARED_RAM_BASE + 0x10), &POWERON_CAUSE_ENTER_DL, sizeof(uint32_t));
+		} else if (!strncmp(cmd, "SDL4", 4)) {
+			restart_reason = 0x53444C34;    //ASCII code of "SDL3"
+			memcpy((unsigned int *)(MSM_SHARED_RAM_BASE + 0x10), &POWERON_CAUSE_ENTER_DL, sizeof(uint32_t));
+		} else if (!strcmp(cmd,"switch")) {
+			restart_reason = 0x78364497;
+			memcpy((unsigned int *)(MSM_SHARED_RAM_BASE + 0x10), &POWERON_CAUSE_SWITCH_FTM_OR_ANDROID, sizeof(uint32_t));
+		//Div2D5-LC-BSP-Porting_RecoveryMode-00 +]
+		//Div2-5-3-Peripheral-LL-SCSI_FTM-00+{
+		} else if (!strcmp(cmd,"ftmonce")) {
+			restart_reason = 0x78364498;
+		//Div2-5-3-Peripheral-LL-SCSI_FTM-00+}
 		} else {
 			restart_reason = 0x77665501;
 		}

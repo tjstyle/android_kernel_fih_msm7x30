@@ -266,7 +266,8 @@ static void update_state(void)
  * key-press = (key_code, 0)
  * key-release = (key_code, 0xff)
  */
-static void report_hs_key(uint32_t key_code, uint32_t key_parm)
+/* Div1-FW3-BSP-AUDIO */
+void report_hs_key(uint32_t key_code, uint32_t key_parm)
 {
 	int key, temp_key_code;
 
@@ -286,6 +287,12 @@ static void report_hs_key(uint32_t key_code, uint32_t key_parm)
 	case KEY_MEDIA:
 	case KEY_VOLUMEUP:
 	case KEY_VOLUMEDOWN:
+//SW2-5-1-MP-Force_Ramdump-00+[
+		if (key==KEY_POWER||key==KEY_END) {
+
+			printk("%s key %s\n",(key==KEY_POWER?"POWER":"END"),(key_code!=HS_REL_K?"down":"up"));
+		}
+//SW2-5-1-MP-Force_Ramdump-00+]
 		input_report_key(hs->ipdev, key, (key_code != HS_REL_K));
 		break;
 	case SW_HEADPHONE_INSERT_W_MIC:

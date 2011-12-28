@@ -13,7 +13,7 @@
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
  * 02110-1301, USA.
- *
+ 
  */
 
 #include <linux/slab.h>
@@ -38,10 +38,61 @@
 #ifdef CONFIG_DIAG_SDIO_PIPE
 #include "diagfwd_sdio.h"
 #endif
+#include "../../../arch/arm/mach-msm/proc_comm.h"    //Div2D5-LC-BSP-Porting_RecoveryMode-00 +
+//+{PS3-RR-ON_DEVICE_QXDM-01
+#include <mach/dbgcfgtool.h>
+//PS3-RR-ON_DEVICE_QXDM-01}+
+
+//Div2D5-LC-BSP-Porting_RecoveryMode-00 +[
+#include <linux/module.h>
+#include <linux/fs.h>
+#include <linux/kthread.h>
+#include <linux/delay.h>
+#include <linux/rtc.h>
+//Div2D5-LC-BSP-Porting_RecoveryMode-00 +]
 
 MODULE_DESCRIPTION("Diag Char Driver");
 MODULE_LICENSE("GPL v2");
 MODULE_VERSION("1.0");
+
+//SW-2-5-1-MP-DbgCfgTool-03+[
+#define  APPS_MODE_ANDROID   0x1
+#define  APPS_MODE_RECOVERY  0x2
+#define  APPS_MODE_FTM       0x3
+#define  APPS_MODE_UNKNOWN   0xFF
+//SW-2-5-1-MP-DbgCfgTool-03+]
+
+/*
+//SW2-5-1-MP-DbgCfgTool-00+[
+#ifdef CONFIG_FIH_EFS2SD
+#define SAVE_MODEM_EFS_LOG 1
+#else
+#define SAVE_MODEM_EFS_LOG 0
+#endif
+
+#if SAVE_MODEM_EFS_LOG
+#include <linux/delay.h>
+#include <asm/uaccess.h>  //get_fs, set_fs
+#include <linux/fs.h>  //filp_open
+
+#define EFS_READ_FILE_BUF_SIZE 600
+#define EFS_FILE_PATH_STR_MAX 64
+
+struct diag_read_buf
+{
+    unsigned char read_buf[EFS_READ_FILE_BUF_SIZE];
+    unsigned int bytes_read;
+}diag_device;
+
+static struct workqueue_struct *diag_wq;
+#endif
+
+//SW2-5-1-MP-DbgCfgTool-00+]
+*/
+//Div2D5-LC-BSP-Porting_RecoveryMode-00 +]
+static DEFINE_SPINLOCK(smd_lock);
+//static DECLARE_WAIT_QUEUE_HEAD(diag_wait_queue);
+//Div2D5-LC-BSP-Porting_RecoveryMode-00 +]
 
 int diag_debug_buf_idx;
 unsigned char diag_debug_buf[1024];
@@ -68,6 +119,44 @@ do {									\
 
 #define CHK_OVERFLOW(bufStart, start, end, length) \
 ((bufStart <= start) && (end - start >= length)) ? 1 : 0
+
+/*
+//Div2D5-LC-BSP-Porting_RecoveryMode-00 +[
+#define WRITE_NV_4719_TO_ENTER_RECOVERY 1
+#ifdef WRITE_NV_4719_TO_ENTER_RECOVERY
+#define NV_FTM_MODE_BOOT_COUNT_I    4719
+
+unsigned int switch_efslog = 1;
+
+//static ssize_t write_nv4179(struct device *dev, struct device_attribute *attr, const char *buf, size_t count)
+//{
+//    unsigned int nv_value = 0;
+//    unsigned int NVdata[3] = {NV_FTM_MODE_BOOT_COUNT_I, 0x1, 0x0};	
+//
+//    sscanf(buf, "%u\n", &nv_value);
+//	
+//    printk("paul %s: %d %u\n", __func__, count, nv_value);
+//    NVdata[1] = nv_value;
+//    fih_write_nv4719((unsigned *) NVdata);
+//
+//    return count;
+//}
+//DEVICE_ATTR(boot2recovery, 0644, NULL, write_nv4179);
+#endif
+
+static ssize_t OnOffEFS(struct device *dev, struct device_attribute *attr, const char *buf, size_t count)
+{
+    unsigned int nv_value = 0;
+
+    sscanf(buf, "%u\n", &nv_value);
+    switch_efslog = nv_value;
+
+    printk("paul %s: %d %u\n", __func__, count, switch_efslog);
+    return count;
+}
+DEVICE_ATTR(turnonofffefslog, 0644, NULL, OnOffEFS);
+//Div2D5-LC-BSP-Porting_RecoveryMode-00 +]
+*/
 
 #define CHK_APQ_GET_ID() \
 (socinfo_get_id() == 86) ? 4062 : 0
@@ -507,63 +596,61 @@ static int diag_process_apps_pkt(unsigned char *buf, int len)
 	}
 #endif
 	/* Check for registered clients and forward packet to user-space */
-	else{
-		cmd_code = (int)(*(char *)buf);
-		temp++;
-		subsys_id = (int)(*(char *)temp);
-		temp++;
-		subsys_cmd_code = *(uint16_t *)temp;
-		temp += 2;
+	cmd_code = (int)(*(char *)buf);
+	temp++;
+	subsys_id = (int)(*(char *)temp);
+	temp++;
+	subsys_cmd_code = *(uint16_t *)temp;
+	temp += 2;
 
-		for (i = 0; i < diag_max_registration; i++) {
-			if (driver->table[i].process_id != 0) {
-				if (driver->table[i].cmd_code ==
-				     cmd_code && driver->table[i].subsys_id ==
-				     subsys_id &&
-				    driver->table[i].cmd_code_lo <=
-				     subsys_cmd_code &&
-					  driver->table[i].cmd_code_hi >=
-				     subsys_cmd_code){
+	for (i = 0; i < diag_max_registration; i++) {
+		if (driver->table[i].process_id != 0) {
+			if (driver->table[i].cmd_code ==
+				 cmd_code && driver->table[i].subsys_id ==
+				 subsys_id &&
+				driver->table[i].cmd_code_lo <=
+				 subsys_cmd_code &&
+				  driver->table[i].cmd_code_hi >=
+				 subsys_cmd_code){
+				driver->pkt_length = len;
+				diag_update_pkt_buffer(buf);
+				diag_update_sleeping_process(
+					driver->table[i].process_id);
+					return 0;
+				} /* end of if */
+			else if (driver->table[i].cmd_code == 255
+				  && cmd_code == 75) {
+				if (driver->table[i].subsys_id ==
+					subsys_id &&
+				   driver->table[i].cmd_code_lo <=
+					subsys_cmd_code &&
+					 driver->table[i].cmd_code_hi >=
+					subsys_cmd_code){
 					driver->pkt_length = len;
 					diag_update_pkt_buffer(buf);
 					diag_update_sleeping_process(
-						driver->table[i].process_id);
-						return 0;
-				    } /* end of if */
-				else if (driver->table[i].cmd_code == 255
-					  && cmd_code == 75) {
-					if (driver->table[i].subsys_id ==
-					    subsys_id &&
-					   driver->table[i].cmd_code_lo <=
-					    subsys_cmd_code &&
-					     driver->table[i].cmd_code_hi >=
-					    subsys_cmd_code){
-						driver->pkt_length = len;
-						diag_update_pkt_buffer(buf);
-						diag_update_sleeping_process(
-							driver->table[i].
-							process_id);
-						return 0;
-					}
-				} /* end of else-if */
-				else if (driver->table[i].cmd_code == 255 &&
-					  driver->table[i].subsys_id == 255) {
-					if (driver->table[i].cmd_code_lo <=
-							 cmd_code &&
-						     driver->table[i].
-						    cmd_code_hi >= cmd_code){
-						driver->pkt_length = len;
-						diag_update_pkt_buffer(buf);
-						diag_update_sleeping_process
-							(driver->table[i].
-							 process_id);
-						return 0;
-					}
-				} /* end of else-if */
-			} /* if(driver->table[i].process_id != 0) */
-		}  /* for (i = 0; i < diag_max_registration; i++) */
-	} /* else */
-		return packet_type;
+						driver->table[i].
+						process_id);
+					return 0;
+				}
+			} /* end of else-if */
+			else if (driver->table[i].cmd_code == 255 &&
+				  driver->table[i].subsys_id == 255) {
+				if (driver->table[i].cmd_code_lo <=
+						 cmd_code &&
+						 driver->table[i].
+						cmd_code_hi >= cmd_code){
+					driver->pkt_length = len;
+					diag_update_pkt_buffer(buf);
+					diag_update_sleeping_process
+						(driver->table[i].
+						 process_id);
+					return 0;
+				}
+			} /* end of else-if */
+		} /* if(driver->table[i].process_id != 0) */
+	}  /* for (i = 0; i < diag_max_registration; i++) */
+	return packet_type;
 }
 
 void diag_process_hdlc(void *data, unsigned len)
@@ -799,9 +886,135 @@ void diag_usb_legacy_notifier(void *priv, unsigned event,
 
 #endif /* DIAG OVER USB */
 
+//Div2D5-LC-BSP-Porting_RecoveryMode-00 +[
+#define DIAG_READ_RETRY_COUNT    100  //100 * 5 ms = 500ms
+int diag_read_from_smd(uint8_t * res_buf, int16_t* res_size)
+{
+    unsigned long flags;
+
+    int sz;
+    int gg = 0;
+    int retry = 0;
+    int rc = -1;
+
+    for(retry = 0; retry < DIAG_READ_RETRY_COUNT; )
+    {
+        sz = smd_cur_packet_size(driver->ch);
+
+        if (sz == 0)
+        {
+            msleep(5);
+            retry++;
+            continue;
+        }
+        gg = smd_read_avail(driver->ch);
+
+        if (sz > gg)
+        {
+            continue;
+        }
+
+        spin_lock_irqsave(&smd_lock, flags);//mutex_lock(&nmea_rx_buf_lock);
+        if (smd_read(driver->ch, res_buf, sz) == sz) {
+            spin_unlock_irqrestore(&smd_lock, flags);//mutex_unlock(&nmea_rx_buf_lock);
+            break;
+        }
+        //nmea_devp->bytes_read = sz;
+        spin_unlock_irqrestore(&smd_lock, flags);//mutex_unlock(&nmea_rx_buf_lock);
+    }
+    *res_size = sz;
+    if (retry >= DIAG_READ_RETRY_COUNT)
+    {
+        rc = -2;
+        goto lbExit;
+    }
+    rc = 0;
+lbExit:
+    return rc;
+}
+EXPORT_SYMBOL(diag_read_from_smd);
+
+void diag_write_to_smd(uint8_t * cmd_buf, int cmd_size)
+{
+	unsigned long flags;
+	int need;
+	//paul// need = sizeof(cmd_buf);
+	need = cmd_size;
+
+	spin_lock_irqsave(&smd_lock, flags);
+	while (smd_write_avail(driver->ch) < need) {
+		spin_unlock_irqrestore(&smd_lock, flags);
+		msleep(10);
+		spin_lock_irqsave(&smd_lock, flags);
+	}
+       smd_write(driver->ch, cmd_buf, cmd_size);
+       spin_unlock_irqrestore(&smd_lock, flags);
+}
+EXPORT_SYMBOL(diag_write_to_smd);
+//Div2D5-LC-BSP-Porting_RecoveryMode-00 +]
+/*
+//SW2-5-1-MP-DbgCfgTool-00+[
+#if SAVE_MODEM_EFS_LOG
+static DEFINE_MUTEX(diag_rx_buf_lock);
+static struct workqueue_struct *diag_wq;
+
+static void diag_work_func(struct work_struct *ws)
+{
+	int sz;
+
+	for (;;) {
+		sz = smd_cur_packet_size(driver->ch);
+		if (sz == 0)
+			break;
+		if (sz > smd_read_avail(driver->ch))
+			break;
+		if (sz > 600) {
+			smd_read(driver->ch, 0, sz);
+			continue;
+		}
+
+		mutex_lock(&diag_rx_buf_lock);
+		if (smd_read(driver->ch, diag_device.read_buf, sz) != sz) {
+			mutex_unlock(&diag_rx_buf_lock);
+			printk(KERN_ERR "diag: not enough data?!\n");
+			continue;
+		}
+		diag_device.bytes_read = sz;
+		mutex_unlock(&diag_rx_buf_lock);
+		wake_up_interruptible(&diag_wait_queue);
+	}
+}
+static DECLARE_WORK(diag_work, diag_work_func);
+#endif
+//SW2-5-1-MP-DbgCfgTool-00+]
+*/
+
 static void diag_smd_notify(void *ctxt, unsigned event)
 {
 	queue_work(driver->diag_wq, &(driver->diag_read_smd_work));
+/*
+//SW2-5-1-MP-DbgCfgTool-00+[
+#if SAVE_MODEM_EFS_LOG
+    if(!diag_usb_configure()) {
+        switch (event) {
+        case SMD_EVENT_DATA: {
+            int sz;
+            sz = smd_cur_packet_size(driver->ch);
+            if ((sz > 0) && (sz <= smd_read_avail(driver->ch)))
+                queue_work(diag_wq, &diag_work);
+            break;
+        }
+        case SMD_EVENT_OPEN:
+            printk(KERN_INFO "diag: smd opened\n");
+            break;
+        case SMD_EVENT_CLOSE:
+            printk(KERN_INFO "diag: smd closed\n");
+            break;
+        }
+    }
+#endif
+//SW2-5-1-MP-DbgCfgTool-00+]
+*/
 }
 
 #if defined(CONFIG_MSM_N_WAY_SMD)
@@ -811,12 +1024,696 @@ static void diag_smd_qdsp_notify(void *ctxt, unsigned event)
 }
 #endif
 
+/*
+//SW2-5-1-MP-DbgCfgTool-00+[
+#if SAVE_MODEM_EFS_LOG
+#define DEBUG_EFS_COMMAND 1
+static void efs_send_req(char * cmd_buf ,int cmd_size)
+{
+    unsigned long flags;
+    int need = cmd_size;
+    int smd_size = 0;
+    int write_size = 0;
+    spin_lock_irqsave(&smd_lock, flags);
+    while ((smd_size = smd_write_avail(driver->ch)) < need) {
+        spin_unlock_irqrestore(&smd_lock, flags);
+        msleep(250);
+        spin_lock_irqsave(&smd_lock, flags);
+    }
+    write_size = smd_write(driver->ch, cmd_buf, cmd_size);
+    spin_unlock_irqrestore(&smd_lock, flags);
+
+	//print_hex_dump(KERN_DEBUG, "", DUMP_PREFIX_OFFSET,
+	//			16, 1, cmd_buf, cmd_size, 0);
+}
+static void efs_recv_res(char * res_buf ,int res_size)
+{
+    struct diag_hdlc_decode_type hdlc = {
+        .dest_ptr = res_buf,  //driver->hdlc_buf;
+        .dest_size = res_size,  //USB_MAX_OUT_BUF;
+        .src_ptr = diag_device.read_buf,  //data;
+        .src_size = res_size, //len;
+        .src_idx = 0,
+        .dest_idx = 0,
+        .escaping = 0,
+    };
+    int r = 0;
+
+    r = wait_event_interruptible_timeout(diag_wait_queue, diag_device.bytes_read,msecs_to_jiffies(1000));
+//    printk(KERN_INFO "%s: bytes_read=%d", __func__, diag_device.bytes_read);
+*/
+
+//	if (r < 0) {
+		/* qualify error message */
+//		if (r != -ERESTARTSYS) {
+			/* we get this anytime a signal comes in */
+/*
+			printk(KERN_ERR "ERROR:%s:%i:%s: "
+				"wait_event_interruptible ret %i\n",
+				__FILE__,
+				__LINE__,
+				__func__,
+				r
+				);
+		}
+		return;
+	} else if(r==0){
+	    printk(KERN_INFO "%s: timeout", __func__);
+	    return;
+	}
+
+	mutex_lock(&diag_rx_buf_lock);
+	diag_device.bytes_read = 0;
+	r = diag_hdlc_decode(&hdlc);
+	mutex_unlock(&diag_rx_buf_lock);
+}
+
+static void efs_send_command(char * cmd_buf ,int cmd_size, char * res_buf ,int res_size)
+{
+    efs_send_req(cmd_buf, cmd_size);
+    efs_recv_res(res_buf, res_size);
+}
+
+struct efs_packet_header
+{
+    u8 cmd_code;
+    u8 subsys_id;
+    u16 subsys_cmd_code;
+};
+
+struct efs_packet_readdir_req
+{
+    struct efs_packet_header header;
+    u32 dirp;
+    u32 seqno;
+};
+
+struct efs_packet_closedir_req
+{
+    struct efs_packet_header header;
+    u32 dirp;
+};
+
+struct efs_packet_closefile_req
+{
+    struct efs_packet_header header;
+    u32 fd;
+};
+
+struct efs_packet_readfile_req
+{
+    struct efs_packet_header header;
+    u32 fd;
+    u32 nbyte;
+    u32 offset;
+};
+
+struct efs_packet_openfile_req
+{
+    struct efs_packet_header header;
+    u32 oflag;
+    u32 mode;
+};
+
+struct efs_packet_opendir_req
+{
+    struct efs_packet_header header;
+    char path[1];
+};
+
+static void getlog(char *dir_name, unsigned int dir_name_size)
+{
+    struct efs_packet_readdir_req EFS_readdir_req = {
+        .header = {
+            .cmd_code = 75,
+            .subsys_id = 19,
+            .subsys_cmd_code = 12,
+        },
+        .dirp = 1,
+        .seqno = 1,
+    }, *pEFS_readdir_req = &EFS_readdir_req;
+
+    struct efs_packet_openfile_req EFS_openfile_oem_req = {
+        .header = {
+            .cmd_code = 75,
+            .subsys_id = 19,
+            .subsys_cmd_code = 2,
+        },
+        .oflag = 0,
+        .mode = 0,
+    }, *pEFS_openfile_oem_req = &EFS_openfile_oem_req;
+
+    struct efs_packet_readfile_req EFS_readfile_req = {
+        .header = {
+            .cmd_code = 75,
+            .subsys_id = 19,
+            .subsys_cmd_code = 4,
+        },
+        .fd = 0,
+        .nbyte = 512,
+        .offset = 0,
+    }, *pEFS_readfile_req = &EFS_readfile_req;
+
+    struct efs_packet_closedir_req EFS_closedir_req = {
+        .header = {
+            .cmd_code = 75,
+            .subsys_id = 19,
+            .subsys_cmd_code = 13,
+        },
+        .dirp = 1,
+    }, *pEFS_closedir_req = &EFS_closedir_req;
+
+    struct efs_packet_closefile_req EFS_closefile_req = {
+        .header = {
+            .cmd_code = 75,
+            .subsys_id = 19,
+            .subsys_cmd_code = 3,
+        },
+        .fd = 0,
+    }, *pEFS_closefile_req = &EFS_closefile_req;
+
+    struct file *efs_file_filp = NULL;
+    struct efs_packet_opendir_req* efs_opendir_req = NULL;
+
+    char efs_log_root_path[] = "/data/efslog/";
+    char efs_file_path[EFS_FILE_PATH_STR_MAX];
+    char responseBuf[EFS_READ_FILE_BUF_SIZE];
+
+    char * efs_req_buf = NULL;
+    char *write_p = NULL;
+    char *efs_dir_path = NULL;    //store string /data/efslog/OEMDBG_LOG/ or /data/efslog/err/
+
+    unsigned int readdir_i=2;
+    unsigned int efs_file_name_length = 0;
+    unsigned int bEOF = 0;
+    unsigned int read_offset = 0;
+    unsigned int open_file_req_size = 0;
+    unsigned int efs_read_res_size = 0;
+    unsigned int efs_opendir_req_size = sizeof(struct efs_packet_header)+ dir_name_size;
+    unsigned int efs_dir_str_len = sizeof(efs_log_root_path)+dir_name_size;  // sizeof():"/data/efslog/" + '\0'  dir_name_size: "err" + '\0'
+
+    efs_dir_path = kzalloc(efs_dir_str_len, GFP_KERNEL);
+    if(efs_dir_path == NULL) {
+        printk(KERN_INFO "allocate efs_dir_path\n");
+        goto End;
+    }
+    snprintf(efs_dir_path, efs_dir_str_len, "%s%s/", efs_log_root_path,dir_name);
+    printk(KERN_INFO "dir_name=%s, dir_name_size=%d, efs_dir_path=%s\n", dir_name, dir_name_size, efs_dir_path);
+
+    efs_opendir_req = (struct efs_packet_opendir_req*)kzalloc(efs_opendir_req_size, GFP_KERNEL);   //efs_opendir_req: open dir command
+    if(efs_opendir_req == NULL) {
+        printk(KERN_INFO "allocate dir_name buffer fails\n");
+        goto End;
+    }
+
+    efs_opendir_req->header.cmd_code = 75;
+    efs_opendir_req->header.subsys_id = 19;
+    efs_opendir_req->header.subsys_cmd_code = 11;
+    memcpy(efs_opendir_req->path, dir_name, dir_name_size);  //include the last '\0'
+    efs_send_command((char *)efs_opendir_req, efs_opendir_req_size, responseBuf, sizeof(responseBuf));
+    printk(KERN_INFO "open %s dir, the dirp=0x%x\n", efs_opendir_req->path, responseBuf[4]);
+    kfree(efs_opendir_req);
+
+    EFS_readdir_req.dirp = responseBuf[4];
+
+    while(1){
+        efs_send_command((char*)pEFS_readdir_req, sizeof(EFS_readdir_req), responseBuf, sizeof(responseBuf));
+        EFS_readdir_req.seqno = readdir_i++;
+        if(responseBuf[40] == 0x00) { //the file name is null
+            printk(KERN_INFO "No additional files\n");
+            break;
+        }
+
+        printk(KERN_INFO "%s dir, file name: %s\n", dir_name, &responseBuf[40]);
+
+        snprintf(efs_file_path, EFS_FILE_PATH_STR_MAX, "%s%s", efs_dir_path, &responseBuf[40]);
+        efs_file_filp = filp_open(efs_file_path, O_WRONLY | O_CREAT |O_LARGEFILE, 0777);
+
+        efs_file_name_length = strlen(&responseBuf[40]);
+//        printk(KERN_INFO "efs_file_name_length=%d\n", efs_file_name_length);
+
+//length of dir_name_size includes the last '\0', length of efs_file_name_length does not include the last '\0'
+        open_file_req_size = sizeof(EFS_openfile_oem_req) + dir_name_size + efs_file_name_length + 1;  //command + dir name length + '\0' + file name length +  '\0'  // the first '\0' will be replaced by '/'
+        efs_req_buf = kzalloc(open_file_req_size, GFP_KERNEL);
+        memcpy(efs_req_buf, pEFS_openfile_oem_req, sizeof(EFS_openfile_oem_req));
+        snprintf(efs_req_buf + sizeof(EFS_openfile_oem_req), open_file_req_size, "%s/%s", dir_name, &responseBuf[40]);
+        efs_send_command(efs_req_buf, open_file_req_size, responseBuf, sizeof(responseBuf));
+        kfree(efs_req_buf);
+
+        EFS_readfile_req.fd = responseBuf[4];
+        EFS_closefile_req.fd = responseBuf[4];
+
+        bEOF = 0;
+        read_offset = 0;
+        while(!bEOF) //write file until EOF
+        {
+            EFS_readfile_req.offset = read_offset << 9;
+            efs_send_command((char *)pEFS_readfile_req, sizeof(EFS_readfile_req), responseBuf, EFS_READ_FILE_BUF_SIZE);
+            read_offset++;
+
+            write_p = &responseBuf[20];
+            efs_read_res_size = (responseBuf[13] << 8) + responseBuf[12] ; 
+
+            if(efs_read_res_size == 0) {
+                bEOF = 1;
+            }else if(efs_read_res_size < 512) {
+                efs_file_filp->f_op->write(efs_file_filp,(char __user *)(write_p), efs_read_res_size ,&efs_file_filp->f_pos);
+                bEOF = 1;
+            } else {
+                efs_file_filp->f_op->write(efs_file_filp,(char __user *)(write_p), efs_read_res_size ,&efs_file_filp->f_pos);
+            }
+        }
+        filp_close(efs_file_filp, NULL);
+        efs_send_command((char *)pEFS_closefile_req, sizeof(EFS_closefile_req), responseBuf, sizeof(responseBuf));
+    };//while(1) read content until the pathname is null
+    efs_send_command((char *)pEFS_closedir_req, sizeof(EFS_closedir_req), responseBuf, sizeof(responseBuf));
+
+End:
+
+    if(efs_dir_path)
+        kfree(efs_dir_path);
+
+    return;
+}
+
+static ssize_t save_efs2sd(struct device *dev, struct device_attribute *attr, const char *buf, size_t count)
+{
+    char EFS_opendir_oemdbg_req[15] = {0x4b, 0x13, 0x0b, 0x00, 'O', 'E', 'M', 'D', 'B', 'G', '_', 'L', 'O', 'G', 0x00};//open OEMDBG_LOG folder
+    char responseBuf[EFS_READ_FILE_BUF_SIZE];
+    mm_segment_t oldfs;
+
+    if(diag_usb_configure()) {
+        printk(KERN_INFO "%s: DIAG Port is open, and USB is plugged, so efs2sd is diabled.\n", __func__);
+        goto End;
+    }
+
+    oldfs=get_fs();
+    set_fs(KERNEL_DS);
+*/
+//**********************BUG****  The first command will fail. Below is a command to fail on purpose, or dirp is not an correct value
+//    efs_send_req(EFS_opendir_oemdbg_req, sizeof(EFS_opendir_oemdbg_req));
+//    efs_recv_res(responseBuf, sizeof(responseBuf));
+//**********************BUG****
+/*
+    getlog("OEMDBG_LOG", sizeof("OEMDBG_LOG"));
+    getlog("err", sizeof("err"));
+
+    set_fs(oldfs);
+
+End:
+    return count;
+}
+
+DEVICE_ATTR(efs2sd, 0777, NULL, save_efs2sd);
+#endif
+//SW2-5-1-MP-DbgCfgTool-00+]
+*/
+
+/* FIH, JiaHao, 2011/09/30 { */ /* fver */
+
+#define ESF2_CMD_RETRY_CONT     100  //100 * 5 ms = 500ms
+#define EFS2_CMD_REQUEST_SIZE   256
+#define EFS2_CMD_RESPONSE_SIZE  544  // 512+32=544
+
+#define EFS2_FILE_READ_SIZE  0x200
+
+#define EFS2_DIAG_OPENDIR_RES_SIZE   12  // Response 12 bytes
+#define EFS2_DIAG_READDIR_RES_SIZE   (40 + 64)  // Response 40 bytes + variable string
+#define EFS2_DIAG_OPEN_RES_SIZE      12  // Response 12 bytes
+#define EFS2_DIAG_READ_RES_SIZE      20  // Response 20 bytes + variable data
+#define EFS2_DIAG_CLOSE_RES_SIZE     8   // Response 8 bytes
+#define EFS2_DIAG_CLOSEDIR_RES_SIZE  8   // Response 8 bytes
+
+static DEFINE_SPINLOCK(diag_smd_lock);
+
+enum {
+    EFS_ERR_NONE,
+    EFS_EPERM,
+    EFS_ENOENT,
+    EFS_EEXIST        =6, 
+    EFS_EBADF         =9,
+    EFS_ENOMEM        =12,
+    EFS_EACCES        =13,
+    EFS_EBUSY         =16,
+    EFS_EXDEV         =18,
+    EFS_ENODEV        =19,
+    EFS_ENOTDIR       =20,
+    EFS_EISDIR        =21,
+    EFS_EINVAL        =22,
+    EFS_EMFILE        =24,
+    EFS_ETXTBSY       =26,
+    EFS_ENOSPC        =28,
+    EFS_ESPIPE        =29,
+    EFS_FS_ERANGE     =34,
+    EFS_ENAMETOOLONG  =36,
+    EFS_ENOTEMPTY     =39,
+    EFS_ELOOP         =40,
+    EFS_ESTALE        =116,
+    EFS_EDQUOT        =122,
+    EFS_ENOCARD       =301,
+    EFS_EBADFMT       =302,
+    EFS_ENOTITM       =303,
+    EFS_EROLLBACK     =304,
+    EFS_ERR_UNKNOWN   =999,
+};
+
+enum {
+    EFS_DIAG_TRANSACTION_OK = 0,
+    EFS_DIAG_TRANSACTION_NO_DATA,
+    EFS_DIAG_TRANSACTION_WRONG_DATA,
+    EFS_DIAG_TRANSACTION_NO_FILE_DIR,
+    EFS_DIAG_TRANSACTION_CMD_ERROR,
+    EFS_DIAG_TRANSACTION_ABORT,
+};
+
+static void efs_send_req(unsigned char * cmd_buf ,int cmd_size)
+{
+    unsigned long flags;
+    int need;
+
+    need = cmd_size;
+    spin_lock_irqsave(&diag_smd_lock, flags);
+
+    while (smd_write_avail(driver->ch) < need) {
+        spin_unlock_irqrestore(&diag_smd_lock, flags);
+        msleep(250);
+        spin_lock_irqsave(&diag_smd_lock, flags);
+    }
+
+    smd_write(driver->ch, cmd_buf, cmd_size);
+    spin_unlock_irqrestore(&diag_smd_lock, flags);
+}
+
+static int efs_recv_res(unsigned char * res_buf ,int res_size)
+{
+    unsigned long flags;
+    static unsigned char responseBuf_temp[EFS2_CMD_RESPONSE_SIZE];
+    struct diag_hdlc_decode_type hdlc;
+    int ret = 0;
+    int sz;
+    int gg = 0;
+    int retry = 0;
+    int rc = -EFS_DIAG_TRANSACTION_NO_DATA;
+
+    hdlc.dest_ptr = res_buf;
+    hdlc.dest_size = res_size;
+    hdlc.src_ptr = responseBuf_temp; //data;
+    hdlc.src_size = sizeof(responseBuf_temp); //len
+    hdlc.src_idx = 0;
+    hdlc.dest_idx = 0;
+    hdlc.escaping = 0;
+    memset(responseBuf_temp, 0, sizeof(responseBuf_temp));
+
+    for (retry = 0; retry < ESF2_CMD_RETRY_CONT; )
+    {
+        sz = smd_cur_packet_size(driver->ch);
+        if (sz == 0) {
+            retry++;
+            msleep(5);
+            continue;
+        }
+
+        gg = smd_read_avail(driver->ch);
+        if (sz > gg) {
+            continue;
+        }
+
+        if (sz >= sizeof(responseBuf_temp)) {
+            goto lbExit_efs_recv_res;
+        }
+
+        spin_lock_irqsave(&diag_smd_lock, flags);
+        if (smd_read(driver->ch, responseBuf_temp, sz) == sz) {
+            spin_unlock_irqrestore(&diag_smd_lock, flags);
+            break;
+        }
+        spin_unlock_irqrestore(&diag_smd_lock, flags);
+    }
+
+    if (retry >= ESF2_CMD_RETRY_CONT) {
+        goto lbExit_efs_recv_res;
+    }
+
+    ret = diag_hdlc_decode(&hdlc);
+    rc = EFS_DIAG_TRANSACTION_OK;
+
+lbExit_efs_recv_res:
+    return rc;
+}
+
+static int efs_diag_func(unsigned char * TxBuf, int TxBufSize, unsigned char * RxBuf, int RxBufSize)
+{
+    int retry = 5;
+    int rc = -1;
+    int error_code = EFS_ERR_NONE;
+
+    do
+    {
+        efs_send_req(TxBuf, TxBufSize);
+
+lbReadDataAgain:
+        rc = efs_recv_res(RxBuf, RxBufSize);
+
+        if (rc < 0)
+        {
+            if (retry-- < 0)
+                break;
+            else
+                continue;
+        }
+
+        if (TxBuf[0] != RxBuf[0] || TxBuf[1] != RxBuf[1] || TxBuf[2] != RxBuf[2])
+        {
+            rc = -EFS_DIAG_TRANSACTION_WRONG_DATA;
+            print_hex_dump(KERN_DEBUG, "", DUMP_PREFIX_OFFSET, 16, 1, RxBuf, RxBufSize, 0);
+            if (retry-- < 0)
+                break;
+            else
+                goto lbReadDataAgain;
+        }
+        else
+        {
+            if (RxBuf[0] == 0x4b && RxBuf[1] == 0x13)
+            {
+                switch (RxBuf[2])
+                {
+                    case 0x0d:  //Close dir
+                    case 0x03:  //Close file
+                        error_code = *(uint32_t *)&RxBuf[4];
+                        break;
+                    case 0x0c:  //Read dir
+                        error_code = *(uint32_t *)&RxBuf[12];
+                        break;
+                    case 0x0b:  //Open dir
+                    case 0x02:  //Open file
+                        error_code = *(uint32_t *)&RxBuf[8];
+                        break;
+                    case 0x04:  //Read file
+                        error_code = *(uint32_t *)&RxBuf[16];
+                        break;
+                    default:
+                        error_code = EFS_ERR_UNKNOWN;
+                        break;
+                }
+            }
+
+            if (error_code)
+            {
+                if (error_code == EFS_ENOENT)
+                {
+                    printk(KERN_ERR "No such file or directory," "Cmd:0x%x Error:0x%x\n", *(uint32_t *)&RxBuf[0], error_code);
+                    rc = -EFS_DIAG_TRANSACTION_NO_FILE_DIR;
+                    break;
+                }
+                else
+                {
+                    printk(KERN_ERR "Cmd:0x%x Error:0x%x\n", *(uint32_t *)&RxBuf[0], error_code);
+                    rc = -EFS_DIAG_TRANSACTION_CMD_ERROR;
+                }
+            }
+        }
+    } while(rc < 0 && retry-- > 0);
+
+    return rc;
+}
+
+// efs_page = the index of page in fver which want to read
+// efs_buf  = store the read back page of BSP/fver 
+int read_efsfver(int efs_page, char *efs_buf)
+{
+    char src[] = "BSP/fver";
+
+    char req_cmd[EFS2_CMD_REQUEST_SIZE];
+    int  req_size;
+    char res_dat[EFS2_CMD_RESPONSE_SIZE];
+    int  res_size;
+
+    int rc;
+    int fd;
+    int offset;
+    int bEOF;
+    char *chr = NULL;
+    int len;
+    int total;
+
+    char CMD_OpenFile[]  = {0x4b, 0x13, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x24, 0x01, 0x00, 0x00};
+    char CMD_CloseFile[] = {0x4b, 0x13, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00};
+    char CMD_ReadFile[]  = {0x4b, 0x13, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+
+//    if (!ftm_smd_driver) {
+//        printk(KERN_ERR "efs_fver_read: [ERROR] ftm_smd_driver is NULL\n");
+//        return (-3);
+//    }
+
+    // open DIAG
+//    mutex_lock(&ftm_smd_driver->ftm_smd_mutex);
+//    smd_open("DIAG", &ftm_smd_driver->ch, ftm_smd_driver, ftm_smd_notify);
+//    mutex_unlock(&ftm_smd_driver->ftm_smd_mutex);
+
+//    if (!ftm_smd_driver->ch) {
+//        printk(KERN_ERR "efs_fver_read: [ERROR] ftm_smd_driver->ch is NULL\n");
+//        return (-4);
+//    }
+
+    if (NULL == efs_buf) {
+        printk(KERN_ERR "efs_fver_read: [WARNING] efs_buf is NULL\n");
+        printk(KERN_ERR "efs_fver_read: [INFO] return the all byte(s) of %s\n", src);
+    }
+    printk("efs_fver_read: [INFO] efs_page = %d\n", efs_page);
+
+    // open BSP/fver file
+    printk(KERN_ERR "efs_fver_read: [INFO] Open %s (src)\n", src);
+    memcpy(req_cmd, CMD_OpenFile, sizeof(CMD_OpenFile));
+    memcpy((req_cmd + sizeof(CMD_OpenFile)), src, sizeof(src));
+    req_size = sizeof(CMD_OpenFile) + sizeof(src) + 1; // +1 for null end of string
+    memset(res_dat, sizeof(res_dat), 0);
+    res_size = EFS2_DIAG_OPEN_RES_SIZE;
+
+    rc = efs_diag_func(req_cmd, req_size, res_dat, res_size);
+    if (rc < 0) {
+        printk(KERN_ERR "efs_fver_read: [ERRPR] Open %s Failed #(-1)\n", src);
+        total = (-1);
+        goto lbExit_efs_fver_read;
+    }
+    fd = res_dat[4];
+    offset = PAGE_SIZE * efs_page;
+    printk("efs_fver_read: [INFO] offset = %d\n", offset);
+    bEOF = 0;
+    total = 0;
+
+    // read BSP/fver file
+    while (!bEOF)
+    {
+        memset(req_cmd, sizeof(req_cmd), 0);
+        memcpy(req_cmd, CMD_ReadFile, sizeof(CMD_ReadFile));
+        req_cmd[4] = fd;
+        *(uint32_t *) &req_cmd[12] = offset;
+        req_size = sizeof(CMD_ReadFile);
+        memset(res_dat, sizeof(res_dat), 0);
+        res_size = EFS2_CMD_RESPONSE_SIZE;
+
+        rc = efs_diag_func(req_cmd, req_size, res_dat, res_size);
+        if (rc < 0) {
+            printk(KERN_ERR "efs_fver_read: [ERROR] Read %s Failed #(-2)\n", src);
+            total = (-2);
+            break;
+        }
+
+        offset += EFS2_FILE_READ_SIZE;
+        chr = &res_dat[20];
+        len = (res_dat[13] << 8) + res_dat[12];
+        printk("efs_fver_read: [INFO] len = %d\n", len);
+        total += len;
+
+        // write BSP/fver into efs_buf
+        if (0 == len)
+        {
+            bEOF = 1;
+        }
+        else if (len < EFS2_FILE_READ_SIZE)
+        {
+            bEOF = 1;
+            if ((NULL != efs_buf)&&(total <= PAGE_SIZE)) {
+                memcpy((efs_buf+(total-len)), chr, len);
+            }
+        }
+        else
+        {
+            if ((NULL != efs_buf)&&(total <= PAGE_SIZE)) {
+                memcpy((efs_buf+(total-len)), chr, len);
+            }
+        }
+
+        if ((PAGE_SIZE <= total)&&(NULL != efs_buf)) {
+            bEOF = 1;
+        }
+    } // while (!bEOF)
+
+    // close BSP/fver file
+    printk("efs_fver_read: [INFO] Close %s\n", src);
+    memset(req_cmd, sizeof(req_cmd), 0);
+    memcpy(req_cmd, CMD_CloseFile, sizeof(CMD_CloseFile));
+    req_size = sizeof(CMD_CloseFile);
+    memset(res_dat, sizeof(res_dat), 0);
+    res_size = EFS2_DIAG_CLOSE_RES_SIZE;
+
+    rc = efs_diag_func(req_cmd, req_size, res_dat, res_size);
+    if (rc < 0) {
+        printk("efs_fver_read: [ERROR] Close %s Failed\n", src);
+    }
+
+    printk("efs_fver_read: [INFO] total = %d\n", total);
+
+lbExit_efs_fver_read:
+
+    // close DIAG
+//    if (ftm_smd_driver->ch) {
+//        mutex_lock(&ftm_smd_driver->ftm_smd_mutex);
+//        smd_close(ftm_smd_driver->ch);
+//        mutex_unlock(&ftm_smd_driver->ftm_smd_mutex);
+//    }
+
+    return total;
+}
+/* FIH, JiaHao, 2011/09/30 } */ /* fver */
+
+
 static int diag_smd_probe(struct platform_device *pdev)
 {
 	int r = 0;
 
+//SW2-5-1-MP-DbgCfgTool-03*[
+//+{PS3-RR-ON_DEVICE_QXDM-01
+#if 0		
+	int cfg_val;
+	int boot_mode;
+	
+	boot_mode = fih_read_boot_mode_from_smem();
+	
+	if(boot_mode != APPS_MODE_FTM)
+	{
+		r = DbgCfgGetByBit(DEBUG_MODEM_LOGGER_CFG, (int*)&cfg_val);
+		if ((r == 0) && (cfg_val == 1) && (boot_mode != APPS_MODE_RECOVERY))
+		{
+			printk(KERN_INFO "FIH:Embedded QXDM Enabled. %s", __FUNCTION__);
+		}
+		else
+		{
+			printk(KERN_ERR "FIH:Fail to call DbgCfgGetByBit(), ret=%d or Embedded QxDM disabled, cfg_val=%d.", r, cfg_val);
+			printk(KERN_ERR "FIH:Default: Embedded QXDM Disabled.\n");
+			
+			if (pdev->id == 0)
+				r = smd_open("DIAG", &driver->ch, driver, diag_smd_notify);
+		}
+	}
+	else
+	{
+		if (pdev->id == 0)
+			r = smd_open("DIAG", &driver->ch, driver, diag_smd_notify);
+	}
+#endif
 	if (pdev->id == 0)
-		r = smd_open("DIAG", &driver->ch, driver, diag_smd_notify);
+	r = smd_open("DIAG", &driver->ch, driver, diag_smd_notify);
 #if defined(CONFIG_MSM_N_WAY_SMD)
 	if (pdev->id == 1)
 		r = smd_named_open_on_edge("DIAG", SMD_APPS_QDSP
@@ -826,8 +1723,56 @@ static int diag_smd_probe(struct platform_device *pdev)
 	pm_runtime_enable(&pdev->dev);
 	printk(KERN_INFO "diag opened SMD port ; r = %d\n", r);
 
+/*
+//SW2-5-1-MP-DbgCfgTool-00+[
+#if SAVE_MODEM_EFS_LOG
+	r = device_create_file(&pdev->dev, &dev_attr_efs2sd);
+	printk(KERN_INFO "device create file r=%d\n", r);
+	if (r < 0)	{
+		dev_err(&pdev->dev, "%s: Create efs2sd attribute \"efs2sd\" failed!! <%d>", __func__, r);
+	}
+
+	diag_wq = create_singlethread_workqueue("diag");
+	if (diag_wq == 0)
+		return -ENOMEM;
+
+#endif
+//SW2-5-1-MP-DbgCfgTool-00+]
+*/
+
+//Div2D5-LC-BSP-Porting_RecoveryMode-00 +[
+#if 0
+	r = device_create_file(&pdev->dev, &dev_attr_boot2recovery);
+
+	if (r < 0)
+	{
+		dev_err(&pdev->dev, "%s: Create nv4719 attribute failed!! <%d>", __func__, r);
+	}
+
+	r = device_create_file(&pdev->dev, &dev_attr_turnonofffefslog);
+
+	if (r < 0)
+	{
+		dev_err(&pdev->dev, "%s: Create turnonofffefslog attribute failed!! <%d>", __func__, r);
+	}
+#endif
+//Div2D5-LC-BSP-Porting_RecoveryMode-00 +]
+
 	return 0;
 }
+
+/*
+//SW2-5-1-MP-DbgCfgTool-00+[
+#if SAVE_MODEM_EFS_LOG
+static int diag_smd_remove(struct platform_device *pdev)
+{
+    int ret = 0;
+    device_remove_file(&pdev->dev, &dev_attr_efs2sd);
+    return ret;
+}
+#endif
+//SW2-5-1-MP-DbgCfgTool-00+]
+*/
 
 static int diagfwd_runtime_suspend(struct device *dev)
 {
@@ -854,6 +1799,13 @@ static struct platform_driver msm_smd_ch1_driver = {
 		   .owner = THIS_MODULE,
 		   .pm   = &diagfwd_dev_pm_ops,
 		   },
+/*
+//SW2-5-1-MP-DbgCfgTool-00+[
+#if SAVE_MODEM_EFS_LOG
+	.remove = diag_smd_remove,
+#endif
+//SW2-5-1-MP-DbgCfgTool-00+]
+*/
 };
 
 void diagfwd_init(void)

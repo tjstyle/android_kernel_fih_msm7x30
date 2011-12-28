@@ -514,6 +514,23 @@ static int msm_otg_set_power(struct otg_transceiver *xceiv, unsigned mA)
 
 	/* Call chg_connected only if the charger has changed */
 	if (new_chg != curr_chg && pdata->chg_connected) {
+/* FIHTDC, Div2-SW2-BSP, Penho, SRWR { */
+#ifdef CONFIG_FIH_FXX
+		if (dev->hs_cclk) {
+			printk(KERN_INFO "msm_otg_set_power : %d -> %d ", curr_chg, new_chg);
+			if (new_chg == USB_CHG_TYPE__WALLCHARGER) {
+				printk("[E]\n");
+				clk_enable(dev->hs_cclk);
+			}
+			else if (curr_chg == USB_CHG_TYPE__WALLCHARGER) {
+				printk("[D]\n");
+				clk_disable(dev->hs_cclk);
+			}
+			else
+				printk("\n");
+		}
+#endif	// CONFIG_FIH_FXX
+/* } FIHTDC, Div2-SW2-BSP, Penho, SRWR */
 		curr_chg = new_chg;
 		pdata->chg_connected(new_chg);
 	}
@@ -1151,6 +1168,11 @@ static irqreturn_t msm_otg_irq(int irq, void *data)
 	pr_debug("otgsc = %x\n", otgsc);
 
 	if ((otgsc & OTGSC_IDIE) && (otgsc & OTGSC_IDIS)) {
+        /* +++ FIHTDC, AlbertYCFang, 2011.10.04 --- */
+        // We don't support usb host mode currently.
+        // When the USB_ID ping is shorted to ground, driver treated it as usb peripheral is attached.
+        // Skip the USB_ID ping interrupt and clear the register
+        #if 0
 		if (otgsc & OTGSC_ID) {
 			pr_debug("Id set\n");
 			set_bit(ID, &dev->inputs);
@@ -1165,6 +1187,11 @@ static irqreturn_t msm_otg_irq(int irq, void *data)
 		}
 		writel(otgsc, USB_OTGSC);
 		work = 1;
+        #endif
+        printk("USB_ID LOW\n");
+        writel(otgsc, USB_OTGSC);
+        work = 0;
+        /* --- FIHTDC, AlbertYCFang, 2011.10.04 --- */
 	} else if (otgsc & OTGSC_BSVIS) {
 		writel(otgsc, USB_OTGSC);
 		/* BSV interrupt comes when operating as an A-device
@@ -2342,9 +2369,17 @@ static int otg_debugfs_init(struct msm_otg *dev)
 	if (!otg_debug_root)
 		return -ENOENT;
 
+/* FIHTDC, Div2-SW2-BSP, Penho, FB0G.B-565 { */
+#ifdef CONFIG_FIH_FXX
+	otg_debug_mode = debugfs_create_file("mode", 0220,
+						otg_debug_root, dev,
+						&otgfs_fops);
+#else	// CONFIG_FIH_FXX
 	otg_debug_mode = debugfs_create_file("mode", 0222,
 						otg_debug_root, dev,
 						&otgfs_fops);
+#endif	// CONFIG_FIH_FXX
+/* } FIHTDC, Div2-SW2-BSP, Penho, FB0G.B-565 */
 	if (!otg_debug_mode) {
 		debugfs_remove(otg_debug_root);
 		otg_debug_root = NULL;

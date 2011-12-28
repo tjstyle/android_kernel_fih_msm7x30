@@ -216,6 +216,35 @@ static int diagchar_close(struct inode *inode, struct file *file)
 	}
 	return -ENOMEM;
 }
+//Div2D5-LC-BSP-Porting_RecoveryMode-00 +[
+#define SD_CARD_DOWNLOAD    1
+#if SD_CARD_DOWNLOAD
+extern void diag_write_to_smd(uint8_t * cmd_buf, int cmd_size);
+extern int diag_read_from_smd(uint8_t * res_buf, int16_t * res_size);
+extern int proc_comm_alloc_sd_dl_smem(int);
+#define FLASH_PART_MAGIC1     0x55EE73AA
+#define FLASH_PART_MAGIC2     0xE35EBDDB
+#define FLASH_PARTITION_VERSION   0x3
+
+struct flash_partition_entry {
+	char name[16];
+	u32 offset;	/* Offset in blocks from beginning of device */
+	u32 length;	/* Length of the partition in blocks */
+	u8 attrib1;
+	u8 attrib2;
+	u8 attrib3;
+	u8 which_flash;	/* Numeric ID (first = 0, second = 1) */
+};
+struct flash_partition_table {
+	u32 magic1;
+	u32 magic2;
+	u32 version;
+	u32 numparts;
+	struct flash_partition_entry part_entry[16];
+};
+
+#endif
+//Div2D5-LC-BSP-Porting_RecoveryMode-00 +]
 
 static int diagchar_ioctl(struct inode *inode, struct file *filp,
 			   unsigned int iocmd, unsigned long ioarg)
@@ -353,6 +382,124 @@ static int diagchar_ioctl(struct inode *inode, struct file *filp,
 #endif /* DIAG over USB */
 		success = 1;
 	}
+    //Div2D5-LC-BSP-Porting_RecoveryMode-00 +[
+    else if (iocmd == DIAG_IOCTL_WRITE_BUFFER) 
+    {
+        struct diagpkt_ioctl_param pkt;
+        uint8_t *pBuf = NULL;
+        if (copy_from_user(&pkt, (void __user *)ioarg, sizeof(pkt)))
+        {
+            return -EFAULT;
+        }
+        if ((pBuf = kzalloc(4096, GFP_KERNEL)) == NULL)
+            return -EFAULT;
+
+        memcpy(pBuf, pkt.pPacket, pkt.Len);
+
+        diag_write_to_smd(pBuf, pkt.Len);
+        kfree(pBuf);
+        return 0;
+    }
+    else if (iocmd == DIAG_IOCTL_READ_BUFFER) 
+    {
+    struct diagpkt_ioctl_param pkt;
+    struct diagpkt_ioctl_param *ppkt;
+    uint8_t *pBuf = NULL;
+        if (copy_from_user(&pkt, (void __user *)ioarg, sizeof(pkt)))
+        {
+            return -EFAULT;
+        }
+
+        if ((pBuf = kzalloc(4096, GFP_KERNEL)) == NULL)
+            return -EFAULT;
+
+        ppkt = (struct diagpkt_ioctl_param *)ioarg;
+
+        if (diag_read_from_smd(pBuf, &(pkt.Len)) < 0)
+        {
+            kfree(pBuf);
+            return -EFAULT;
+        }
+        
+        if (copy_to_user((void __user *) &ppkt->Len, &pkt.Len, sizeof(pkt.Len)))
+        {
+            kfree(pBuf);
+            return -EFAULT;
+        }
+        if (copy_to_user((void __user *) pkt.pPacket, pBuf, pkt.Len))
+        {
+            kfree(pBuf);
+            return -EFAULT;
+        }
+        kfree(pBuf);
+        return 0;
+    }
+    else if (iocmd == DIAG_IOCTL_PASS_FIRMWARE_LIST)
+    {
+        FirmwareList FL;
+        FirmwareList * pFL = NULL;
+        int size;
+
+        if (copy_from_user(&FL, (void __user *)ioarg, sizeof(FL)+4))
+        {
+            return -EFAULT;
+        }
+
+        printk("update flag 0x%X\n",FL.iFLAG);
+        printk("image %s\n",FL.pCOMBINED_IMAGE);
+        printk("0x%08X 0x%08X\n", FL.aANDROID_BOOT[0], FL.aANDROID_BOOT[1]);
+        printk("FirmwareListChecksum(FL)=0x%08X, FirmwareListSize(FL)=%d\n", FL.checksum, sizeof(FL));
+		
+        // Fill smem_mem_type
+        proc_comm_alloc_sd_dl_smem(0);
+
+        size = sizeof(FirmwareList);
+        pFL = smem_alloc(SMEM_SD_IMG_UPGRADE_STATUS, size);
+
+        if (pFL == NULL)
+            return -EFAULT;
+
+        memcpy(pFL, &FL, sizeof(FirmwareList));
+        print_hex_dump(KERN_DEBUG, "", DUMP_PREFIX_OFFSET,16, 1, pFL, size, 0);
+
+        printk("0x%08X 0x%08X\n", pFL->aANDROID_BOOT[0], pFL->aANDROID_BOOT[1]);
+        printk("FirmwareListChecksum(pFL)=0x%08X, FirmwareListSize(pFL)=%d\n", pFL->checksum, size);
+        
+        return 0;
+    }
+    else if (iocmd == DIAG_IOCTL_GET_PART_TABLE_FROM_SMEM)
+    {
+        struct flash_partition_table *partition_table;
+
+        partition_table = (struct flash_partition_table *)
+            smem_alloc(SMEM_AARM_PARTITION_TABLE,
+        	       sizeof(struct flash_partition_table));
+
+        if (!partition_table) {
+            printk(KERN_WARNING "%s: no flash partition table in shared "
+                   "memory\n", __func__);
+            return -ENOENT;
+        }
+
+        if ((partition_table->magic1 != (u32) FLASH_PART_MAGIC1) ||
+            (partition_table->magic2 != (u32) FLASH_PART_MAGIC2) ||
+            (partition_table->version != (u32) FLASH_PARTITION_VERSION))
+        {
+        	printk(KERN_WARNING "%s: version mismatch -- magic1=%#x, "
+        	       "magic2=%#x, version=%#x\n", __func__,
+        	       partition_table->magic1,
+        	       partition_table->magic2,
+        	       partition_table->version);
+        	return -EFAULT;
+        }
+        if (copy_to_user((void __user *) ioarg, partition_table, sizeof(struct flash_partition_table)))
+        {
+            return -EFAULT;
+        }
+
+        return 0;
+    }
+    //Div2D5-LC-BSP-Porting_RecoveryMode-00 +]
 
 	return success;
 }

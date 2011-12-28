@@ -22,6 +22,11 @@
 #include <linux/device.h>
 #include <linux/mutex.h>
 #include <linux/interrupt.h>
+/* FIHTDC, Div2-SW2-BSP, Penho, SuspendLog { */
+#ifdef CONFIG_FIH_SUSPEND_RESUME_LOG
+#include <linux/kallsyms.h>
+#endif	// CONFIG_FIH_SUSPEND_RESUME_LOG
+/* } FIHTDC, Div2-SW2-BSP, Penho, SuspendLog */
 
 #include "base.h"
 
@@ -408,6 +413,11 @@ int sysdev_suspend(pm_message_t state)
 			/* Call auxillary drivers first */
 			list_for_each_entry(drv, &cls->drivers, entry) {
 				if (drv->suspend) {
+/* FIHTDC, Div2-SW2-BSP, Penho, SuspendLog { */
+#ifdef CONFIG_FIH_SUSPEND_RESUME_LOG
+					print_symbol("suspend auxillary drivers: %s\n", (unsigned long)drv->suspend);
+#endif	// CONFIG_FIH_SUSPEND_RESUME_LOG
+/* } FIHTDC, Div2-SW2-BSP, Penho, SuspendLog */
 					ret = drv->suspend(sysdev, state);
 					if (ret)
 						goto aux_driver;
@@ -419,6 +429,11 @@ int sysdev_suspend(pm_message_t state)
 
 			/* Now call the generic one */
 			if (cls->suspend) {
+/* FIHTDC, Div2-SW2-BSP, Penho, SuspendLog { */
+#ifdef CONFIG_FIH_SUSPEND_RESUME_LOG
+				print_symbol("suspend generic drivers: %s\n", (unsigned long)cls->suspend);
+#endif	// CONFIG_FIH_SUSPEND_RESUME_LOG
+/* } FIHTDC, Div2-SW2-BSP, Penho, SuspendLog */
 				ret = cls->suspend(sysdev, state);
 				if (ret)
 					goto cls_driver;

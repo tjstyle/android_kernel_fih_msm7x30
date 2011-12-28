@@ -115,4 +115,10 @@
 #define MSM_AD5_PHYS          0xA7000000
 #define MSM_AD5_SIZE          (SZ_1M*13)
 
+#if defined(CONFIG_FIH_MLOG)
+#define MSM_MLOG_BASE           IOMEM(0xFB000000)
+#define MSM_MLOG_PHYS           0x7B00000
+#define MSM_MLOG_SIZE             SZ_1M
+#endif
+
 #endif

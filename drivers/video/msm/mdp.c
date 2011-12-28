@@ -171,7 +171,7 @@ static int mdp_lut_update_nonlcdc(struct fb_info *info, struct fb_cmap *cmap)
 
 	if (ret)
 		return ret;
-
+	dsb();
 	mutex_lock(&mdp_lut_push_sem);
 	mdp_lut_push = 1;
 	mdp_lut_push_i = mdp_lut_i;
@@ -203,13 +203,14 @@ static int mdp_lut_update_lcdc(struct fb_info *info, struct fb_cmap *cmap)
 
 static void mdp_lut_enable(void)
 {
+	mutex_lock(&mdp_lut_push_sem);
 	if (mdp_lut_push) {
-		mutex_lock(&mdp_lut_push_sem);
 		mdp_lut_push = 0;
+		dsb();
 		MDP_OUTP(MDP_BASE + 0x90070,
 				(mdp_lut_push_i << 10) | 0x17);
-		mutex_unlock(&mdp_lut_push_sem);
 	}
+	mutex_unlock(&mdp_lut_push_sem);
 }
 
 #define MDP_HIST_MAX_BIN 32
@@ -617,6 +618,7 @@ void mdp_pipe_ctrl(MDP_BLOCK_TYPE block, MDP_BLOCK_POWER_STATE state,
 		if ((mdp_all_blocks_off) && (mdp_current_clk_on)) {
 			if (block == MDP_MASTER_BLOCK) {
 				mdp_current_clk_on = FALSE;
+				dsb();
 				/* turn off MDP clks */
 				mdp_vsync_clk_disable();
 				for (i = 0; i < pdev_list_cnt; i++) {
@@ -635,10 +637,12 @@ void mdp_pipe_ctrl(MDP_BLOCK_TYPE block, MDP_BLOCK_POWER_STATE state,
 							 122880000);
 					}
 					MSM_FB_DEBUG("MDP CLK OFF\n");
+					printk(KERN_INFO "[DISPLAY] %s: MDP CLK OFF\n", __func__);
 				}
 				if (mdp_pclk != NULL) {
 					clk_disable(mdp_pclk);
 					MSM_FB_DEBUG("MDP PCLK OFF\n");
+					printk(KERN_INFO "[DISPLAY] %s: MDP PCLK OFF\n", __func__);
 				}
 			} else {
 				/* send workqueue to turn off mdp power */
@@ -664,10 +668,12 @@ void mdp_pipe_ctrl(MDP_BLOCK_TYPE block, MDP_BLOCK_POWER_STATE state,
 				}
 				clk_enable(mdp_clk);
 				MSM_FB_DEBUG("MDP CLK ON\n");
+				printk(KERN_INFO "[DISPLAY] %s: MDP CLK ON\n", __func__);
 			}
 			if (mdp_pclk != NULL) {
 				clk_enable(mdp_pclk);
 				MSM_FB_DEBUG("MDP PCLK ON\n");
+				printk(KERN_INFO "[DISPLAY] %s: MDP PCLK ON\n", __func__);
 			}
 			mdp_vsync_clk_enable();
 		}

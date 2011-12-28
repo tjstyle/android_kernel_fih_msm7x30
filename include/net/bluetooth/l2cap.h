@@ -75,6 +75,9 @@ struct l2cap_conninfo {
 #define L2CAP_LM_SECURE		0x0020
 #define L2CAP_LM_FLUSHABLE	0x0040
 
+//Div2-SW6-BT_SNIFF++{
+#define L2CAP_FORCE_ACTIVE_MODE 0x04
+//Div2-SW6-BT_SNIFF++}
 /* L2CAP command codes */
 #define L2CAP_COMMAND_REJ	0x01
 #define L2CAP_CONN_REQ		0x02

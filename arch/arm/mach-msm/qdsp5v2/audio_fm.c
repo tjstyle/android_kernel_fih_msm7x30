@@ -40,6 +40,11 @@
 #include <mach/qdsp5v2/acdb_commands.h>
 #include <mach/qdsp5v2/audio_acdbi.h>
 #include <mach/qdsp5v2/audio_acdb_def.h>
+/* FIHTDC, Div2-SW2-BSP, Peter, Audio { */
+#ifdef CONFIG_FIH_SFX_AUDIO
+#include<linux/fih_hw_info.h>
+#endif
+/* } FIHTDC, Div2-SW2-BSP, Peter, Audio */
 
 #define SESSION_ID_FM 6
 #define FM_ENABLE	0xFFFF
@@ -262,6 +267,16 @@ static long audio_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 		else
 			rc = 0;
 		break;
+/* FIHTDC, Div2-SW2-BSP, Peter, Audio { */
+#ifdef CONFIG_FIH_SFX_AUDIO
+	case FM_CODECSETTING:
+ 		if(IS_SF8_SERIES_PRJ())
+			rc = 1;
+		else
+			rc = 0;
+		break;
+#endif
+/* } FIHTDC, Div2-SW2-BSP, Peter, Audio */
 	default:
 		rc = -EINVAL;
 	}

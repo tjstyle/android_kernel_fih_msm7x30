@@ -404,9 +404,17 @@ SYSCALL_DEFINE4(reboot, int, magic1, int, magic2, unsigned int, cmd,
 		break;
 
 	case LINUX_REBOOT_CMD_HALT:
+/* Div2-SW2-BSP, JOE HSU, direct power off { */
+    printk(KERN_EMERG "test ... LINUX_REBOOT_CMD_HALT\n");
+    pm_power_off();
+		do_exit(0);
+		break;
+/* Div2-SW2-BSP, JOE HSU, direct power off } */		
+/*		
 		kernel_halt();
 		do_exit(0);
 		panic("cannot halt");
+*/				
 
 	case LINUX_REBOOT_CMD_POWER_OFF:
 		kernel_power_off();

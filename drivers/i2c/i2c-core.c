@@ -36,6 +36,11 @@
 #include <linux/rwsem.h>
 #include <linux/pm_runtime.h>
 #include <asm/uaccess.h>
+/* FIHTDC, Div2-SW2-BSP, Penho, SuspendLog { */
+#ifdef CONFIG_FIH_SUSPEND_RESUME_LOG
+#include <linux/kallsyms.h>
+#endif	// CONFIG_FIH_SUSPEND_RESUME_LOG
+/* } FIHTDC, Div2-SW2-BSP, Penho, SuspendLog */
 
 #include "i2c-core.h"
 
@@ -189,8 +194,20 @@ static int i2c_device_pm_suspend(struct device *dev)
 {
 	const struct dev_pm_ops *pm = dev->driver ? dev->driver->pm : NULL;
 
+/* FIHTDC, Div2-SW2-BSP, Penho, SuspendLog { */
+#ifdef CONFIG_FIH_SUSPEND_RESUME_LOG
+	if (pm) {
+		if (pm->suspend) {
+			print_symbol("i2c pm suspend: %s\n", (unsigned long)pm->suspend);
+			return pm->suspend(dev);
+		}
+		else return 0;
+	}
+#else	// CONFIG_FIH_SUSPEND_RESUME_LOG
 	if (pm)
 		return pm->suspend ? pm->suspend(dev) : 0;
+#endif	// CONFIG_FIH_SUSPEND_RESUME_LOG
+/* } FIHTDC, Div2-SW2-BSP, Penho, SuspendLog */
 
 	return i2c_legacy_suspend(dev, PMSG_SUSPEND);
 }
@@ -200,8 +217,19 @@ static int i2c_device_pm_resume(struct device *dev)
 	const struct dev_pm_ops *pm = dev->driver ? dev->driver->pm : NULL;
 	int ret;
 
+/* FIHTDC, Div2-SW2-BSP, Penho, SuspendLog { */
+#ifdef CONFIG_FIH_SUSPEND_RESUME_LOG
+	if (pm)
+		if (pm->suspend) {
+			print_symbol("i2c pm resume: %s\n", (unsigned long)pm->resume);
+			ret = pm->resume(dev);
+		}
+		else ret = 0;
+#else	// CONFIG_FIH_SUSPEND_RESUME_LOG
 	if (pm)
 		ret = pm->resume ? pm->resume(dev) : 0;
+#endif	// CONFIG_FIH_SUSPEND_RESUME_LOG
+/* } FIHTDC, Div2-SW2-BSP, Penho, SuspendLog */
 	else
 		ret = i2c_legacy_resume(dev);
 

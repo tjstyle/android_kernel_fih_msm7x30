@@ -110,7 +110,7 @@
 #define LP_FORCE_LPM_CONTROL_PROC 70
 #define LOW_CURRENT_LED_SET_EXT_SIGNAL_PROC 71
 #define LOW_CURRENT_LED_SET_CURRENT_PROC 72
-
+#define XO_CORE_FORCE_ENABLE 73
 
 /* rpc related */
 #define PMIC_RPC_TIMEOUT (5*HZ)
@@ -200,6 +200,7 @@ static int pmic_buf_init(void)
 static inline void pmic_buf_reserve(struct pmic_buf *bp, int len)
 {
 	bp->data += len;
+	bp->len  += len;
 }
 
 static inline void pmic_buf_reset(struct pmic_buf *bp)
@@ -324,7 +325,6 @@ static int pmic_rpc_req_reply(struct pmic_buf *tbuf, struct pmic_buf *rbuf,
 	* the length
 	*/
 	tbuf->data = tbuf->start;
-	tbuf->len += sizeof(struct rpc_request_hdr);
 
 	len = msm_rpc_call_reply(pm->endpoint, proc,
 				tbuf->data, tbuf->len,
@@ -1122,3 +1122,9 @@ int pmic_low_current_led_set_current(enum low_current_led led,
 			LOW_CURRENT_LED_SET_CURRENT_PROC);
 }
 EXPORT_SYMBOL(pmic_low_current_led_set_current);
+
+int pmic_xo_core_force_enable(uint enable)
+{
+	return pmic_rpc_set_only(enable, 0, 0, 0, 1, XO_CORE_FORCE_ENABLE);
+}
+EXPORT_SYMBOL(pmic_xo_core_force_enable);

@@ -33,4 +33,5 @@ void __msm_gpiomux_write(unsigned gpio, struct gpiomux_setting val)
 			GPIO_IN_OUT(gpio));
 	}
 	writel(bits, GPIO_CFG(gpio));
+	dsb();
 }

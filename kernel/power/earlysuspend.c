@@ -17,11 +17,23 @@
 #include <linux/module.h>
 #include <linux/mutex.h>
 #include <linux/rtc.h>
-#include <linux/syscalls.h> /* sys_sync */
 #include <linux/wakelock.h>
 #include <linux/workqueue.h>
 
 #include "power.h"
+
+//Div2-SW2-BSP-pmlog, HenryMCWang +
+#include "linux/pmlog.h"
+#include "mach/fih_msm_battery.h"
+//Div2-SW2-BSP-pmlog, HenryMCWang -
+
+/* FIHTDC, Div2-SW2-BSP, Penho, SuspendLog { */
+#ifdef CONFIG_FIH_SUSPEND_RESUME_LOG
+#include <linux/ktime.h>
+#include <linux/hrtimer.h>
+#include <linux/kallsyms.h>
+#endif	// CONFIG_FIH_SUSPEND_RESUME_LOG
+/* } FIHTDC, Div2-SW2-BSP, Penho, SuspendLog */
 
 enum {
 	DEBUG_USER_STATE = 1U << 0,
@@ -70,11 +82,40 @@ void unregister_early_suspend(struct early_suspend *handler)
 }
 EXPORT_SYMBOL(unregister_early_suspend);
 
+/* FIHTDC, Div2-SW2-BSP, Penho, fast dormancy { */
+#ifdef CONFIG_FIH_FAST_DORMANCY
+extern void open_dorm_fifo(void);
+#endif	// CONFIG_FIH_FAST_DORMANCY
+/* } FIHTDC, Div2-SW2-BSP, Penho, fast dormancy */
+
+/* FIHTDC, Div2-SW2-BSP, Penho, SuspendLog { */
+#ifdef CONFIG_FIH_SUSPEND_RESUME_LOG
+struct task_struct *gts_suspend = NULL;
+#endif	// CONFIG_FIH_SUSPEND_RESUME_LOG
+/* } FIHTDC, Div2-SW2-BSP, Penho, SuspendLog */
+
 static void early_suspend(struct work_struct *work)
 {
 	struct early_suspend *pos;
 	unsigned long irqflags;
 	int abort = 0;
+
+/* FIHTDC, Div2-SW2-BSP, Penho, SuspendLog { */
+#ifdef CONFIG_FIH_SUSPEND_RESUME_LOG
+	ktime_t calltime, delta, rettime;
+	unsigned long long duration;
+#endif	// CONFIG_FIH_SUSPEND_RESUME_LOG
+/* } FIHTDC, Div2-SW2-BSP, Penho, SuspendLog */
+
+#if defined(CONFIG_FIH_POWER_LOG) && defined(CONFIG_BATTERY_FIH_MSM)
+	struct batt_info_interface* batt_info_if = get_batt_info_if();
+#endif
+
+/* FIHTDC, Div2-SW2-BSP, Penho, SuspendLog { */
+#ifdef CONFIG_FIH_SUSPEND_RESUME_LOG
+	gts_suspend = current;
+#endif	// CONFIG_FIH_SUSPEND_RESUME_LOG
+/* } FIHTDC, Div2-SW2-BSP, Penho, SuspendLog */
 
 	mutex_lock(&early_suspend_lock);
 	spin_lock_irqsave(&state_lock, irqflags);
@@ -93,16 +134,54 @@ static void early_suspend(struct work_struct *work)
 
 	if (debug_mask & DEBUG_SUSPEND)
 		pr_info("early_suspend: call handlers\n");
+
+//Div2-SW2-BSP-pmlog, HenryMCWang +
+#if defined(CONFIG_FIH_POWER_LOG) && defined(CONFIG_BATTERY_FIH_MSM)
+	pmlog("early_suspend(): batt capacity=%dmAh, usb charging type=%d\n", batt_info_if->get_batt_voltage()/1000, batt_info_if->get_chg_source());
+#endif
+//Div2-SW2-BSP-pmlog, HenryMCWang -
+	
 	list_for_each_entry(pos, &early_suspend_handlers, link) {
+/* FIHTDC, Div2-SW2-BSP, Penho, SuspendLog { */
+#ifdef CONFIG_FIH_SUSPEND_RESUME_LOG
+		if (pos->suspend != NULL) {
+			calltime = ktime_get();
+			print_symbol("early_suspend function: %s\n", (unsigned long)pos->suspend);
+
+			pos->suspend(pos);
+
+			rettime = ktime_get();
+			delta = ktime_sub(rettime, calltime);
+			duration = (unsigned long long) ktime_to_ns(delta) >> 10;
+			pr_info("takes %Ld usecs\n", duration);
+		}
+#else	// CONFIG_FIH_SUSPEND_RESUME_LOG
 		if (pos->suspend != NULL)
 			pos->suspend(pos);
+#endif	// CONFIG_FIH_SUSPEND_RESUME_LOG
+/* } FIHTDC, Div2-SW2-BSP, Penho, SuspendLog */
 	}
 	mutex_unlock(&early_suspend_lock);
 
-	if (debug_mask & DEBUG_SUSPEND)
-		pr_info("early_suspend: sync\n");
+/* FIHTDC, Div2-SW2-BSP, Penho, fast dormancy { */
+#ifdef CONFIG_FIH_FAST_DORMANCY
+	open_dorm_fifo();
+#endif	// CONFIG_FIH_FAST_DORMANCY
+/* } FIHTDC, Div2-SW2-BSP, Penho, fast dormancy */
 
-	sys_sync();
+
+/* FIHTDC, Div2-SW2-BSP, Penho, SuspendLog { */
+#ifdef CONFIG_FIH_SUSPEND_RESUME_LOG
+	calltime = ktime_get();
+	suspend_sys_sync_queue();
+	rettime = ktime_get();
+	delta = ktime_sub(rettime, calltime);
+	duration = (unsigned long long) ktime_to_ns(delta) >> 10;
+	pr_info("early suspend sync: takes %Ld usecs\n", duration);
+#else	// CONFIG_FIH_SUSPEND_RESUME_LOG
+	suspend_sys_sync_queue();
+#endif	// CONFIG_FIH_SUSPEND_RESUME_LOG
+/* } FIHTDC, Div2-SW2-BSP, Penho, SuspendLog */
 abort:
 	spin_lock_irqsave(&state_lock, irqflags);
 	if (state == SUSPEND_REQUESTED_AND_SUSPENDED)
@@ -115,6 +194,17 @@ static void late_resume(struct work_struct *work)
 	struct early_suspend *pos;
 	unsigned long irqflags;
 	int abort = 0;
+
+/* FIHTDC, Div2-SW2-BSP, Penho, SuspendLog { */
+#ifdef CONFIG_FIH_SUSPEND_RESUME_LOG
+	ktime_t calltime, delta, rettime;
+	unsigned long long duration;
+#endif	// CONFIG_FIH_SUSPEND_RESUME_LOG
+/* } FIHTDC, Div2-SW2-BSP, Penho, SuspendLog */
+
+#if defined(CONFIG_FIH_POWER_LOG) && defined(CONFIG_BATTERY_FIH_MSM)
+	struct batt_info_interface* batt_info_if = get_batt_info_if();
+#endif
 
 	mutex_lock(&early_suspend_lock);
 	spin_lock_irqsave(&state_lock, irqflags);
@@ -132,8 +222,31 @@ static void late_resume(struct work_struct *work)
 	if (debug_mask & DEBUG_SUSPEND)
 		pr_info("late_resume: call handlers\n");
 	list_for_each_entry_reverse(pos, &early_suspend_handlers, link)
+/* FIHTDC, Div2-SW2-BSP, Penho, SuspendLog { */
+#ifdef CONFIG_FIH_SUSPEND_RESUME_LOG
+		if (pos->resume != NULL) {
+			calltime = ktime_get();
+			print_symbol("late_resume function: %s\n", (unsigned long)pos->resume);
+
+			pos->resume(pos);
+
+			rettime = ktime_get();
+			delta = ktime_sub(rettime, calltime);
+			duration = (unsigned long long) ktime_to_ns(delta) >> 10;
+			pr_info("takes %Ld usecs\n", duration);
+		}
+#else	// CONFIG_FIH_SUSPEND_RESUME_LOG
 		if (pos->resume != NULL)
 			pos->resume(pos);
+#endif	// CONFIG_FIH_SUSPEND_RESUME_LOG
+
+//Div2-SW2-BSP-pmlog, HenryMCWang +
+#if defined(CONFIG_FIH_POWER_LOG) && defined(CONFIG_BATTERY_FIH_MSM)
+	pmlog("late_resume(): batt capacity=%dmAh, usb charging type=%d\n", batt_info_if->get_batt_voltage()/1000, batt_info_if->get_chg_source());
+#endif
+//Div2-SW2-BSP-pmlog, HenryMCWang -
+
+/* } FIHTDC, Div2-SW2-BSP, Penho, SuspendLog */
 	if (debug_mask & DEBUG_SUSPEND)
 		pr_info("late_resume: done\n");
 abort:

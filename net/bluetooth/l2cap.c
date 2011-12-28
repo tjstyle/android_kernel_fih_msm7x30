@@ -1925,6 +1925,22 @@ static int l2cap_sock_setsockopt_old(struct socket *sock, int optname, char __us
 		l2cap_pi(sk)->force_reliable = (opt & L2CAP_LM_RELIABLE);
 		l2cap_pi(sk)->flushable = (opt & L2CAP_LM_FLUSHABLE);
 		break;
+//Div2-SW6-BT_SNIFF++{
+	case L2CAP_FORCE_ACTIVE_MODE:
+		if (sk->sk_state != BT_CONNECTED) {
+			err = -ENOTCONN;
+			break;
+		}
+
+		if (get_user(opt, (u32 __user *) optval)) {
+			err = -EFAULT;
+			break;
+		}
+
+		l2cap_pi(sk)->conn->hcon->force_active_mode = opt;
+		break;
+
+//Div2-SW6-BT_SNIFF++}
 
 	default:
 		err = -ENOPROTOOPT;
@@ -2077,6 +2093,20 @@ static int l2cap_sock_getsockopt_old(struct socket *sock, int optname, char __us
 			err = -EFAULT;
 
 		break;
+//Div2-SW6-BT_SNIFF++{
+	case L2CAP_FORCE_ACTIVE_MODE:
+		if (sk->sk_state != BT_CONNECTED) {
+			err = -ENOTCONN;
+			break;
+		}
+
+		if (put_user(l2cap_pi(sk)->conn->hcon->force_active_mode,
+				 (u32 __user *) optval))
+			err = -EFAULT;
+		break;
+
+
+//Div2-SW6-BT_SNIFF++}
 
 	default:
 		err = -ENOPROTOOPT;

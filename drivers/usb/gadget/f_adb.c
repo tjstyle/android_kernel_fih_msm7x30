@@ -32,6 +32,11 @@
 
 #include <linux/usb/android_composite.h>
 
+/* FIHTDC, Div2-SW2-BSP, Penho, ADB_ROOT { */
+#include "../../../arch/arm/mach-msm/smd_private.h"
+#include "../../../arch/arm/mach-msm/proc_comm.h"
+/* } FIHTDC, Div2-SW2-BSP, Penho, ADB_ROOT */
+
 #define BULK_BUFFER_SIZE           4096
 
 /* number of tx requests to allocate */
@@ -584,6 +589,46 @@ static void adb_function_disable(struct usb_function *f)
 	VDBG(cdev, "%s disabled\n", dev->function.name);
 }
 
+/* FIHTDC, Div2-SW2-BSP, Penho, ADB_ROOT { */
+#define NV_BSP_ADB_USER_RIGHT_I 50028
+static bool scsi_adb_root = false;
+static bool nv_adb_root = false;
+void scsi_set_adb_root(void);
+void nv_read_adb_root_right(void);
+
+static ssize_t root_show(struct device *dev, struct device_attribute *attr, char *buf)
+{
+    bool is_root = (scsi_adb_root || nv_adb_root);
+    scsi_adb_root = false;
+    return sprintf(buf, "%d\n", is_root?1:0);
+}
+
+static DEVICE_ATTR(root, S_IRUGO | S_IWUSR, root_show, NULL);
+
+void scsi_set_adb_root()
+{
+    scsi_adb_root = true;
+}
+EXPORT_SYMBOL(scsi_set_adb_root);
+
+void nv_read_adb_root_right()
+{
+    uint32_t smem_proc_comm_oem_cmd1 = PCOM_CUSTOMER_CMD1;
+    uint32_t smem_proc_comm_oem_data1 = SMEM_PROC_COMM_OEM_NV_READ;
+    uint32_t smem_proc_comm_oem_data2 = NV_BSP_ADB_USER_RIGHT_I;
+    uint32_t adb_root_right[32];
+    if (msm_proc_comm_oem(smem_proc_comm_oem_cmd1, &smem_proc_comm_oem_data1, adb_root_right, &smem_proc_comm_oem_data2) == 0) {
+        if(adb_root_right[0] != 1) {
+            printk(KERN_INFO "%s: adb_root_right[0]=%d\n", __func__, adb_root_right[0]);
+            nv_adb_root = true;
+        } else {
+            printk(KERN_INFO "%s: adb user right\n", __func__);
+            nv_adb_root = false;
+        }
+    }
+}
+/* } FIHTDC, Div2-SW2-BSP, Penho, ADB_ROOT */
+
 static int adb_bind_config(struct usb_configuration *c)
 {
 	struct adb_dev *dev;
@@ -631,6 +676,13 @@ static int adb_bind_config(struct usb_configuration *c)
 	ret = usb_add_function(c, &dev->function);
 	if (ret)
 		goto err3;
+
+/* FIHTDC, Div2-SW2-BSP, Penho, ADB_ROOT { */
+	nv_read_adb_root_right();
+	ret = device_create_file(dev->function.dev, &dev_attr_root);
+	if (ret)
+		printk(KERN_ERR "create adb root file fail!\n");
+/* } FIHTDC, Div2-SW2-BSP, Penho, ADB_ROOT */
 
 	return 0;
 

@@ -27,6 +27,15 @@ struct android_usb_function {
 };
 
 struct android_usb_product {
+/* FIHTDC, Div2-SW2-BSP, Penho, USB_ACCESORIES { */
+#ifdef CONFIG_USB_ANDROID_ACCESSORY
+	/* Vendor ID for this set of functions.
+	 * Default vendor_id in platform data will be used if this is zero.
+	 */
+	__u16 vendor_id;
+#endif	// CONFIG_USB_ANDROID_ACCESSORY
+/* } FIHTDC, Div2-SW2-BSP, Penho, USB_ACCESORIES */
+
 	/* Default product ID. */
 	__u16 product_id;
 

@@ -354,6 +354,11 @@ static int set_irq_wake_real(unsigned int irq, unsigned int on)
  *	Wakeup mode lets this IRQ wake the system from sleep
  *	states like "suspend to RAM".
  */
+/* FIHTDC, Div2-SW2-BSP, Penho, SuspendLog { */
+#ifdef CONFIG_FIH_SUSPEND_RESUME_LOG
+#include "linux/pmdbg.h"
+#endif	// CONFIG_FIH_SUSPEND_RESUME_LOG
+/* } FIHTDC, Div2-SW2-BSP, Penho, SuspendLog */
 int set_irq_wake(unsigned int irq, unsigned int on)
 {
 	struct irq_desc *desc = irq_to_desc(irq);
@@ -385,6 +390,15 @@ int set_irq_wake(unsigned int irq, unsigned int on)
 	}
 
 	raw_spin_unlock_irqrestore(&desc->lock, flags);
+/* FIHTDC, Div2-SW2-BSP, Penho, SuspendLog { */
+#ifdef CONFIG_FIH_SUSPEND_RESUME_LOG
+	if (g_fih_trace_irq == irq) {
+		printk(KERN_INFO "[PM] set_irq_wake(%d, %d) - wake_depth(%d) : %d\n", irq, on, desc->wake_depth, ret);
+		if (msm_pm_debug_mask & MSM_PM_DEBUG_FIH_CALL_STACK)
+			__WARN_printf(" ");
+	}
+#endif	// CONFIG_FIH_SUSPEND_RESUME_LOG
+/* } FIHTDC, Div2-SW2-BSP, Penho, SuspendLog */
 	return ret;
 }
 EXPORT_SYMBOL(set_irq_wake);
