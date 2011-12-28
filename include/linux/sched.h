@@ -143,7 +143,7 @@ extern unsigned long nr_iowait_cpu(int cpu);
 extern unsigned long this_cpu_load(void);
 
 
-extern void calc_global_load(void);
+extern void calc_global_load(unsigned long ticks);
 
 extern unsigned long get_parent_ip(unsigned long addr);
 
@@ -856,6 +856,7 @@ struct sched_group {
 	 * single CPU.
 	 */
 	unsigned int cpu_power;
+	unsigned int group_weight;
 
 	/*
 	 * The CPUs this group covers.
@@ -1076,7 +1077,7 @@ struct sched_class {
 					 struct task_struct *task);
 
 #ifdef CONFIG_FAIR_GROUP_SCHED
-	void (*moved_group) (struct task_struct *p, int on_rq);
+	void (*task_move_group) (struct task_struct *p, int on_rq);
 	void (*prep_move_group) (struct task_struct *p, int on_rq);
 #endif
 };
@@ -1689,8 +1690,7 @@ extern int task_free_unregister(struct notifier_block *n);
 /*
  * Per process flags
  */
-#define PF_ALIGNWARN	0x00000001	/* Print alignment warning msgs */
-					/* Not implemented yet, only for 486*/
+#define PF_KSOFTIRQD	0x00000001	/* I am ksoftirqd */
 #define PF_STARTING	0x00000002	/* being created */
 #define PF_EXITING	0x00000004	/* getting shut down */
 #define PF_EXITPIDONE	0x00000008	/* pi exit done on shut down */
